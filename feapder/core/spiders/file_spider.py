@@ -10,6 +10,8 @@ import os
 import warnings
 from urllib.parse import urlparse, unquote
 
+from redis.exceptions import NoScriptError
+
 import feapder.setting as setting
 import feapder.utils.tools as tools
 from feapder.core.spiders.task_spider import TaskSpider
@@ -229,9 +231,17 @@ return 0
             self.__class__._lua_incr_and_check_sha = redis_client.script_load(
                 self._LUA_INCR_AND_CHECK
             )
-        return redis_client.evalsha(
-            self.__class__._lua_incr_and_check_sha, 1, progress_key, field
-        )
+        try:
+            return redis_client.evalsha(
+                self.__class__._lua_incr_and_check_sha, 1, progress_key, field
+            )
+        except NoScriptError:
+            self.__class__._lua_incr_and_check_sha = redis_client.script_load(
+                self._LUA_INCR_AND_CHECK
+            )
+            return redis_client.evalsha(
+                self.__class__._lua_incr_and_check_sha, 1, progress_key, field
+            )
 
     def start_requests(self, task):
         """

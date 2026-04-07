@@ -57,9 +57,9 @@ class OssResultSpider(feapder.FileSpider):
     def get_download_urls(self, task):
         return json.loads(task.file_urls)
 
-    def get_file_path(self, task, url):
+    def get_file_path(self, task, url, index):
         filename = os.path.basename(unquote(urlparse(url).path))
-        return f"images/{task.id}/{filename}"
+        return f"images/{task.id}/{index}_{filename}"
 
     def process_file(self, task_id, url, file_path, response):
         # self.oss_client.put_object(file_path, response.content)
