@@ -60,7 +60,6 @@ all_requires = [
     "bitarray>=1.5.3",
     "PyExecJS>=1.5.1",
     "pymongo>=3.10.1",
-    "redis-py-cluster>=2.1.0",
 ] + render_requires
 
 setuptools.setup(
