@@ -43,8 +43,8 @@ CREATE TABLE `file_task` (
 
 | 方法 | 说明 | 默认行为 |
 |------|------|----------|
-| `get_file_path(task, url)` | 返回文件保存路径/存储标识 | `{save_dir}/{task_id}/{filename}` |
-| `process_file(task_id, url, file_path, response)` | 处理文件内容，返回最终存储位置 | 保存到本地磁盘，返回本地路径 |
+| `get_file_path(task, url, index)` | 返回文件保存路径/存储标识 | `{save_dir}/{task_id}/{index}_{filename}` |
+| `process_file(task_id, url, file_path, response)` | 处理文件内容，返回最终存储位置 | 流式保存到本地磁盘，返回本地路径 |
 | `on_file_downloaded(task_id, url, file_path)` | 单个文件下载成功回调 | 无 |
 | `on_file_failed(task_id, url, error)` | 单个文件下载失败回调 | 无 |
 

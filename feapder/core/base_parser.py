@@ -8,6 +8,7 @@ Created on 2018-07-25 11:41:57
 @email:  boris_liu@foxmail.com
 """
 import os
+from urllib.parse import urlparse, unquote
 
 import feapder.utils.tools as tools
 from feapder.db.mysqldb import MysqlDB
@@ -211,25 +212,25 @@ class FileParser(TaskParser):
         """
         raise NotImplementedError("必须实现 get_download_urls 方法")
 
-    def get_file_path(self, task, url):
+    def get_file_path(self, task, url, index):
         """
         返回文件保存路径/标识，用户可重写
-        本地场景: 返回本地文件路径，如 ./downloads/123/image.jpg
-        云存储场景: 返回存储标识/key，如 bucket/prefix/123/image.jpg
+        本地场景: 返回本地文件路径，如 ./downloads/123/0_image.jpg
+        云存储场景: 返回存储标识/key，如 bucket/prefix/123/0_image.jpg
         @param task: 任务信息
         @param url: 文件 URL
+        @param index: 文件在 URL 列表中的索引，默认实现用于避免同名文件覆盖
         @return: str - 文件路径或存储标识
         """
-        from urllib.parse import urlparse, unquote
-
         parsed = urlparse(url)
         filename = os.path.basename(unquote(parsed.path)) or "unknown"
+        filename = f"{index}_{filename}"
         return os.path.join(self._save_dir, str(task.id), filename)
 
     def process_file(self, task_id, url, file_path, response):
         """
         处理下载的文件内容，返回文件最终存储位置。用户按需重写
-        默认实现: 保存到本地磁盘，返回本地路径
+        默认实现: 流式保存到本地磁盘，返回本地路径
         云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
         @param task_id: 任务 ID
         @param url: 文件原始 URL
@@ -239,7 +240,9 @@ class FileParser(TaskParser):
         """
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
-            f.write(response.content)
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
         return file_path
 
     def on_file_downloaded(self, task_id, url, file_path):

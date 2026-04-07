@@ -57,6 +57,7 @@ class RedisFileDedup(FileDedup):
         self._redisdb = RedisDB()
         self._table = table
         self._expire_time = expire_time
+        self._expire_set = False
 
     def get(self, url):
         result = self._redisdb.hget(self._table, url)
@@ -68,6 +69,9 @@ class RedisFileDedup(FileDedup):
 
     def set(self, url, result_url):
         self._redisdb.hset(self._table, url, result_url)
+        if self._expire_time and not self._expire_set:
+            self._redisdb._redis.expire(self._table, self._expire_time)
+            self._expire_set = True
 
 
 class MysqlFileDedup(FileDedup):

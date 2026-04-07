@@ -8,6 +8,7 @@ Created on 2026/4/7
 
 import os
 import warnings
+from urllib.parse import urlparse, unquote
 
 import feapder.setting as setting
 import feapder.utils.tools as tools
@@ -135,25 +136,25 @@ class FileSpider(TaskSpider):
         """
         raise NotImplementedError("必须实现 get_download_urls 方法")
 
-    def get_file_path(self, task, url):
+    def get_file_path(self, task, url, index):
         """
         返回文件保存路径/标识，用户可重写
         本地场景: 返回本地文件路径
         云存储场景: 返回存储标识/key
         @param task: 任务信息
         @param url: 文件 URL
+        @param index: 文件在 URL 列表中的索引，默认实现用于避免同名文件覆盖
         @return: str
         """
-        from urllib.parse import urlparse, unquote
-
         parsed = urlparse(url)
         filename = os.path.basename(unquote(parsed.path)) or "unknown"
+        filename = f"{index}_{filename}"
         return os.path.join(self._save_dir, str(task.id), filename)
 
     def process_file(self, task_id, url, file_path, response):
         """
         处理下载的文件内容，返回文件最终存储位置。用户按需重写
-        默认实现: 保存到本地磁盘，返回本地路径
+        默认实现: 流式保存到本地磁盘，返回本地路径
         云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
         @param task_id: 任务 ID
         @param url: 文件原始 URL
@@ -163,7 +164,9 @@ class FileSpider(TaskSpider):
         """
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
-            f.write(response.content)
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
         return file_path
 
     def on_file_downloaded(self, task_id, url, file_path):
@@ -200,6 +203,36 @@ class FileSpider(TaskSpider):
 
     # ===================== 框架内部方法 =====================
 
+    # Lua 脚本: 原子递增计数并判断是否首次达到完成条件
+    # 返回值: 0=未完成或已触发过, 1=首次达到完成条件
+    _LUA_INCR_AND_CHECK = """
+local key = KEYS[1]
+local field = ARGV[1]
+redis.call('hincrby', key, field, 1)
+local total = tonumber(redis.call('hget', key, 'total') or 0)
+local success = tonumber(redis.call('hget', key, 'success') or 0)
+local fail = tonumber(redis.call('hget', key, 'fail') or 0)
+if success + fail >= total and total > 0 then
+    local done = redis.call('hsetnx', key, 'done', 1)
+    if done == 1 then
+        return 1
+    end
+end
+return 0
+"""
+    _lua_incr_and_check_sha = None
+
+    def _incr_and_check_done(self, progress_key, field):
+        """原子递增计数并检查是否首次达到完成条件"""
+        redis_client = self._redisdb._redis
+        if self.__class__._lua_incr_and_check_sha is None:
+            self.__class__._lua_incr_and_check_sha = redis_client.script_load(
+                self._LUA_INCR_AND_CHECK
+            )
+        return redis_client.evalsha(
+            self.__class__._lua_incr_and_check_sha, 1, progress_key, field
+        )
+
     def start_requests(self, task):
         """
         遍历 URL 列表生成下载请求。
@@ -208,6 +241,8 @@ class FileSpider(TaskSpider):
         urls = self.get_download_urls(task)
         if not urls:
             log.warning(f"任务{task.id}无下载URL")
+            for result in self.on_task_all_done(task.id, 0, 0, 0, []) or []:
+                yield result
             return
 
         total = len(urls)
@@ -224,7 +259,15 @@ class FileSpider(TaskSpider):
         self._redisdb.hset(progress_key, "fail", 0)
 
         cached_count = 0
+        skipped_count = 0
         for index, url in enumerate(urls):
+            if not url or not isinstance(url, str) or not url.strip():
+                self._redisdb.hset(result_key, str(index), "")
+                self._redisdb.hincrby(progress_key, "fail", 1)
+                skipped_count += 1
+                log.warning(f"任务{task_id} 跳过无效URL index={index}")
+                continue
+
             # 去重缓存检查
             if self._file_dedup:
                 cached_result = self._file_dedup.get(url)
@@ -233,10 +276,21 @@ class FileSpider(TaskSpider):
                     self._redisdb.hincrby(progress_key, "success", 1)
                     cached_count += 1
                     log.debug(f"任务{task_id} 文件去重命中 url={url}")
-                    self.on_file_downloaded(task_id, url, cached_result)
+                    try:
+                        self.on_file_downloaded(task_id, url, cached_result)
+                    except Exception as e:
+                        log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
                     continue
 
-            file_path = self.get_file_path(task, url)
+            try:
+                file_path = self.get_file_path(task, url, index)
+            except Exception as e:
+                self._redisdb.hset(result_key, str(index), "")
+                self._redisdb.hincrby(progress_key, "fail", 1)
+                skipped_count += 1
+                log.error(f"任务{task_id} get_file_path异常 url={url} error={e}")
+                continue
+
             yield Request(
                 url,
                 task_id=task_id,
@@ -248,11 +302,11 @@ class FileSpider(TaskSpider):
         if cached_count > 0:
             log.info(f"任务{task_id} 去重命中{cached_count}/{total}个文件")
 
-        # 全部命中缓存，直接触发 on_task_all_done
-        if cached_count >= total:
+        # 全部命中缓存或跳过，直接触发 on_task_all_done
+        if cached_count + skipped_count >= total:
             results = self._assemble_results(task_id, total)
             for result in self.on_task_all_done(
-                task_id, cached_count, 0, total, results
+                task_id, cached_count, skipped_count, total, results
             ) or []:
                 yield result
             self._cleanup_task_redis(task_id)
@@ -278,19 +332,24 @@ class FileSpider(TaskSpider):
         )
         self._redisdb.hset(result_key, str(file_index), result_url or "")
 
-        # 更新进度
+        # 原子递增成功计数并检查是否首次完成
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
-        success = self._redisdb.hincrby(progress_key, "success", 1)
+        is_first_done = self._incr_and_check_done(progress_key, "success")
+
         total = int(self._redisdb.hget(progress_key, "total") or 0)
+        success = int(self._redisdb.hget(progress_key, "success") or 0)
         fail = int(self._redisdb.hget(progress_key, "fail") or 0)
 
         log.info(f"任务{task_id} 文件下载成功 [{success + fail}/{total}] url={url}")
-        self.on_file_downloaded(task_id, url, result_url)
 
-        # 检查任务是否全部完成
-        if success + fail >= total:
+        try:
+            self.on_file_downloaded(task_id, url, result_url)
+        except Exception as e:
+            log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
+
+        if is_first_done:
             results = self._assemble_results(task_id, total)
             for result in self.on_task_all_done(
                 task_id, success, fail, total, results
@@ -315,19 +374,24 @@ class FileSpider(TaskSpider):
         )
         self._redisdb.hset(result_key, str(file_index), "")
 
-        # 更新进度
+        # 原子递增失败计数并检查是否首次完成
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
-        fail = self._redisdb.hincrby(progress_key, "fail", 1)
+        is_first_done = self._incr_and_check_done(progress_key, "fail")
+
         total = int(self._redisdb.hget(progress_key, "total") or 0)
         success = int(self._redisdb.hget(progress_key, "success") or 0)
+        fail = int(self._redisdb.hget(progress_key, "fail") or 0)
 
         log.error(f"任务{task_id} 文件下载失败 [{success + fail}/{total}] url={request.url}")
-        self.on_file_failed(task_id, request.url, e)
 
-        # 检查任务是否全部完成
-        if success + fail >= total:
+        try:
+            self.on_file_failed(task_id, request.url, e)
+        except Exception as e_cb:
+            log.error(f"任务{task_id} on_file_failed回调异常 url={request.url} error={e_cb}")
+
+        if is_first_done:
             results = self._assemble_results(task_id, total)
             for result in self.on_task_all_done(
                 task_id, success, fail, total, results
@@ -339,21 +403,20 @@ class FileSpider(TaskSpider):
 
     def _assemble_results(self, task_id, total):
         """
-        从 Redis 结果 Hash 中按 0~total-1 顺序读取所有文件处理结果，
-        组装为有序列表返回。
+        从 Redis 结果 Hash 中一次性拉取所有文件处理结果，
+        按 0~total-1 顺序组装为有序列表返回。
         """
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
+        all_data = self._redisdb.hgetall(result_key)
         results = []
         for i in range(total):
-            value = self._redisdb.hget(result_key, str(i))
-            if value is None or value == "" or value == b"":
+            value = all_data.get(str(i)) or all_data.get(str(i).encode())
+            if value is None or value == b"" or value == "":
                 results.append(None)
             else:
-                if isinstance(value, bytes):
-                    value = value.decode()
-                results.append(value)
+                results.append(value.decode() if isinstance(value, bytes) else value)
         return results
 
     def _cleanup_task_redis(self, task_id):
