@@ -45,7 +45,7 @@ CREATE TABLE `file_task` (
 | 方法 | 说明 | 默认行为 |
 |------|------|----------|
 | `get_file_path(task, url, index)` | 返回文件保存路径/存储标识 | `{save_dir}/{task_id}/{index}_{md5(filename)}{ext}` |
-| `process_file(task_id, url, file_path, response)` | 处理文件内容，返回最终存储位置（需保证幂等） | 流式保存到本地磁盘，返回本地路径 |
+| `process_file(task_id, url, file_path, response)` | 处理文件内容，返回最终存储位置（需保证幂等，不可返回空值） | 流式保存到本地磁盘，返回本地路径 |
 | `validate(request, response)` | 校验下载响应 | 4xx/5xx抛异常触发重试，3xx自动跟随 |
 | `on_file_downloaded(task_id, url, file_path)` | 单个文件下载成功回调 | 无 |
 | `on_file_failed(task_id, url, error)` | 单个文件下载失败回调 | 无 |
@@ -65,12 +65,14 @@ save_file (框架层，不应重写)
               └── yield update_task_batch → 更新任务状态
 ```
 
-### `process_file` 幂等性要求
+### `process_file` 约束
 
 `process_file` 在下载失败重试时可能被多次调用（同一 URL、同一 `file_path`），实现需保证幂等性：
 - 默认实现使用 `"wb"` 模式覆盖写入，天然幂等
 - 重写时避免使用追加模式（`"ab"`）
 - 云存储场景建议使用 `put_object` 等覆盖语义的 API
+
+**返回值要求**: 必须返回非空字符串（文件最终存储位置）。返回 `None` 或空字符串 `""` 会被视为处理失败，触发框架重试，直至重试次数耗尽后计入失败。
 
 ### `on_task_all_done` 参数说明
 

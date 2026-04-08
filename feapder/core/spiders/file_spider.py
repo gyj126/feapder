@@ -172,12 +172,14 @@ class FileSpider(TaskSpider):
         处理下载的文件内容，返回文件最终存储位置。用户按需重写
         默认实现: 流式保存到本地磁盘，返回本地路径
         云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
-        注意: 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
+        注意:
+        - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
+        - 必须返回非空字符串，返回空值会触发重试直至失败
         @param task_id: 任务 ID
         @param url: 文件原始 URL
         @param file_path: get_file_path 返回的路径/标识
         @param response: 下载响应
-        @return: str - 文件最终存储位置
+        @return: str - 文件最终存储位置（不可为空）
         """
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
@@ -297,8 +299,12 @@ return {0, total, success, fail, skipped, dup}
             raise TypeError(f"get_download_urls应返回列表, 实际返回了字符串: {urls[:100]}")
         if not urls:
             log.warning(f"任务{task.id}无下载URL")
-            for item in self.on_task_all_done(task, [], 0, 0, 0, 0, 0) or []:
-                yield item
+            try:
+                for item in self.on_task_all_done(task, [], 0, 0, 0, 0, 0) or []:
+                    yield item
+            except Exception as e:
+                log.error(f"任务{task.id} on_task_all_done异常 error={e}")
+                log.warning(f"任务{task.id} 状态未更新, 请检查on_task_all_done实现")
             return
 
         total = len(urls)
@@ -438,7 +444,7 @@ return {0, total, success, fail, skipped, dup}
             raise
 
         if not result_url:
-            log.warning(f"任务{task_id} process_file返回空值 url={url}, 将计为成功但结果为None")
+            raise Exception(f"process_file返回空值 url={url}, 请检查实现是否正确返回了文件存储位置")
 
         # 写入去重缓存（异常不影响主流程）
         if self._file_dedup and result_url:
