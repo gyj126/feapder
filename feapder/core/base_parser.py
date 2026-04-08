@@ -8,6 +8,7 @@ Created on 2018-07-25 11:41:57
 @email:  boris_liu@foxmail.com
 """
 import os
+from urllib.parse import urlparse, unquote
 
 import feapder.utils.tools as tools
 from feapder.db.mysqldb import MysqlDB
@@ -189,6 +190,98 @@ class TaskParser(BaseParser):
         update_item.name_underline = self._task_table + "_item"
 
         return update_item
+
+
+class FileParser(TaskParser):
+    """
+    @summary: 文件下载爬虫模版
+    ---------
+    """
+
+    def __init__(self, task_table, task_state, mysqldb=None, save_dir="./downloads"):
+        super(FileParser, self).__init__(
+            task_table=task_table, task_state=task_state, mysqldb=mysqldb
+        )
+        self._save_dir = save_dir
+
+    def get_download_urls(self, task):
+        """
+        从 task 中获取需要下载的文件 URL 列表，用户必须实现
+        @param task: 任务信息
+        @return: List[str] - URL 列表
+        """
+        raise NotImplementedError("必须实现 get_download_urls 方法")
+
+    def get_file_path(self, task, url, index):
+        """
+        返回文件保存路径/标识，用户可重写
+        本地场景: 返回本地文件路径，如 ./downloads/123/0_image.jpg
+        云存储场景: 返回存储标识/key，如 bucket/prefix/123/0_image.jpg
+        @param task: 任务信息
+        @param url: 文件 URL
+        @param index: 文件在 URL 列表中的索引，默认实现用于避免同名文件覆盖
+        @return: str - 文件路径或存储标识
+        """
+        parsed = urlparse(url)
+        filename = os.path.basename(unquote(parsed.path)) or "unknown"
+        filename = f"{index}_{filename}"
+        return os.path.join(self._save_dir, str(task.id), filename)
+
+    def process_file(self, task_id, url, file_path, response):
+        """
+        处理下载的文件内容，返回文件最终存储位置。用户按需重写
+        默认实现: 流式保存到本地磁盘，返回本地路径
+        云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
+        注意:
+        - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
+        - 必须返回非空字符串，返回空值会触发重试直至失败
+        @param task_id: 任务 ID
+        @param url: 文件原始 URL
+        @param file_path: get_file_path 返回的路径/标识
+        @param response: 下载响应
+        @return: str - 文件最终存储位置（不可为空）
+        """
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        return file_path
+
+    def on_file_downloaded(self, task_id, url, file_path):
+        """
+        单个文件下载成功的回调，用户可重写
+        @param task_id: 任务 ID
+        @param url: 文件原始 URL
+        @param file_path: 文件存储位置
+        """
+        pass
+
+    def on_file_failed(self, task_id, url, error):
+        """
+        单个文件下载失败的回调，用户可重写
+        @param task_id: 任务 ID
+        @param url: 文件原始 URL
+        @param error: 异常信息
+        """
+        pass
+
+    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+        """
+        任务所有文件处理完毕的回调
+        用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
+        @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
+        @param result: List[str|None] - 每个文件的处理结果，
+            顺序与 get_download_urls 返回的列表一致。
+            成功为文件存储位置（本地路径或云存储 URL），失败为 None。
+            任务内重复URL的结果继承首次出现的结果
+        @param success_count: 成功数（含去重缓存命中）
+        @param fail_count: 下载失败数（重试耗尽）
+        @param skipped_count: 跳过数（无效URL、get_file_path异常等）
+        @param dup_count: 任务内重复URL数
+        @param total_count: 总数（success + fail + skipped + dup = total）
+        """
+        pass
 
 
 class BatchParser(TaskParser):

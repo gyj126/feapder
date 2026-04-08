@@ -87,7 +87,7 @@ def main():
     elif args.spider:
         c = Choice(
             "请选择爬虫模板",
-            ["AirSpider", "Spider", "TaskSpider", "BatchSpider"],
+            ["AirSpider", "Spider", "TaskSpider", "BatchSpider", "FileSpider"],
             icon_style=StringStyle(fore=Fore.green),
             selected_style=StringStyle(fore=Fore.green),
         )
