@@ -57,8 +57,10 @@ class CreateSpider:
             template_path = "task_spider_template.tmpl"
         elif spider_type == "BatchSpider":
             template_path = "batch_spider_template.tmpl"
+        elif spider_type == "FileSpider":
+            template_path = "file_spider_template.tmpl"
         else:
-            raise ValueError("spider type error, only support AirSpider、 Spider、TaskSpider、BatchSpider")
+            raise ValueError("spider type error, only support AirSpider、Spider、TaskSpider、BatchSpider、FileSpider")
 
         template_path = os.path.abspath(
             os.path.join(__file__, "../../../templates", template_path)

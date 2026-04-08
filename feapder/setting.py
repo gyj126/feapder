@@ -15,6 +15,8 @@ TAB_SPIDER_STATUS = "{redis_key}:h_spider_status"
 TAB_FILE_PROGRESS = "{redis_key}:h_file_progress:{task_id}"
 # 文件爬虫 - 文件结果
 TAB_FILE_RESULT = "{redis_key}:h_file_result:{task_id}"
+# 文件爬虫 - 任务内重复URL映射
+TAB_FILE_DUP = "{redis_key}:h_file_dup:{task_id}"
 # 文件爬虫 - 去重缓存
 TAB_FILE_DEDUP = "{redis_key}:h_file_dedup"
 # 用户池

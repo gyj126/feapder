@@ -186,6 +186,13 @@ class FileSpider(TaskSpider):
                     f.write(chunk)
         return file_path
 
+    def validate(self, request, response):
+        """文件下载默认校验: 4xx/5xx响应抛异常触发重试，3xx由requests自动跟随。用户可重写"""
+        if response and response.status_code >= 400:
+            raise Exception(
+                f"文件下载HTTP {response.status_code} url={request.url}"
+            )
+
     def on_file_downloaded(self, task_id, url, file_path):
         """
         单个文件下载成功的回调，用户可重写
@@ -204,57 +211,68 @@ class FileSpider(TaskSpider):
         """
         pass
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, total_count):
+    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
         @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
         @param result: List[str|None] - 每个文件的处理结果，
             顺序与 get_download_urls 返回的列表一致。
-            成功为文件存储位置，失败为 None
+            成功为文件存储位置，失败为 None。
+            任务内重复URL的结果继承首次出现的结果
         @param success_count: 成功数（含去重缓存命中）
         @param fail_count: 下载失败数（重试耗尽）
         @param skipped_count: 跳过数（无效URL、get_file_path异常等）
-        @param total_count: 总数
+        @param dup_count: 任务内重复URL数
+        @param total_count: 总数（success + fail + skipped + dup = total）
         """
         pass
 
     # ===================== 框架内部方法 =====================
 
-    # Lua 脚本: 原子操作 - 检查key存在 + 写入结果 + 递增计数 + 设置TTL + 检查完成
+    # Lua 脚本: 原子操作 - 轮次校验 + 幂等写入结果 + 递增计数 + 设置TTL + 检查完成
     # KEYS[1]=progress_key  KEYS[2]=result_key
-    # ARGV[1]=field("success"/"fail")  ARGV[2]=file_index  ARGV[3]=result_value
-    # 返回值: {status, total, success, fail, skipped}
-    #   status: -1=key不存在(晚到回调), 0=未完成, 1=首次完成
+    # ARGV[1]=field("success"/"fail")  ARGV[2]=file_index  ARGV[3]=result_value  ARGV[4]=run_id
+    # 返回值: {status, total, success, fail, skipped, dup}
+    #   status: -1=key不存在或run_id不匹配(过期回调), 0=未完成, 1=首次完成
     _LUA_RECORD_AND_CHECK = """
 if redis.call('exists', KEYS[1]) == 0 then
-    return {-1, 0, 0, 0, 0}
+    return {-1, 0, 0, 0, 0, 0}
 end
-redis.call('hset', KEYS[2], ARGV[2], ARGV[3])
+if redis.call('hget', KEYS[1], 'run_id') ~= ARGV[4] then
+    return {-1, 0, 0, 0, 0, 0}
+end
+local is_new = redis.call('hsetnx', KEYS[2], ARGV[2], ARGV[3])
+if is_new == 1 then
+    redis.call('hincrby', KEYS[1], ARGV[1], 1)
+end
 redis.call('expire', KEYS[2], 86400)
-redis.call('hincrby', KEYS[1], ARGV[1], 1)
+redis.call('expire', KEYS[1], 86400)
 local total = tonumber(redis.call('hget', KEYS[1], 'total')) or 0
 local success = tonumber(redis.call('hget', KEYS[1], 'success')) or 0
 local fail = tonumber(redis.call('hget', KEYS[1], 'fail')) or 0
 local skipped = tonumber(redis.call('hget', KEYS[1], 'skipped')) or 0
-if success + fail + skipped >= total and total > 0 then
+local dup = tonumber(redis.call('hget', KEYS[1], 'dup')) or 0
+if success + fail + skipped + dup >= total and total > 0 then
     local done = redis.call('hsetnx', KEYS[1], 'done', 1)
     if done == 1 then
-        return {1, total, success, fail, skipped}
+        return {1, total, success, fail, skipped, dup}
     end
 end
-return {0, total, success, fail, skipped}
+return {0, total, success, fail, skipped, dup}
 """
 
-    def _record_and_check_done(self, progress_key, result_key, field, file_index, result_value):
-        """原子操作: 检查key存在 + 写入结果 + 递增计数 + 检查完成
-        @return: (status, total, success, fail, skipped)
-            status: -1=key不存在(晚到回调), 0=未完成, 1=首次完成
+    def _record_and_check_done(self, progress_key, result_key, field, file_index, result_value, run_id):
+        """原子操作: 轮次校验 + 幂等写入结果 + 递增计数 + 检查完成
+        run_id 不匹配时视为过期回调直接丢弃，防止跨轮次数据污染。
+        同一 file_index 仅首次写入时递增计数器。
+        @return: (status, total, success, fail, skipped, dup)
+            status: -1=key不存在或run_id不匹配(过期回调), 0=未完成, 1=首次完成
         """
         try:
             result = self._redisdb._redis.evalsha(
                 self._lua_record_and_check_sha, 2,
-                progress_key, result_key, field, file_index, result_value,
+                progress_key, result_key, field, file_index, result_value, run_id,
             )
         except NoScriptError:
             self._lua_record_and_check_sha = self._redisdb._redis.script_load(
@@ -262,23 +280,24 @@ return {0, total, success, fail, skipped}
             )
             result = self._redisdb._redis.evalsha(
                 self._lua_record_and_check_sha, 2,
-                progress_key, result_key, field, file_index, result_value,
+                progress_key, result_key, field, file_index, result_value, run_id,
             )
-        return result[0], result[1], result[2], result[3], result[4]
+        return result[0], result[1], result[2], result[3], result[4], result[5]
 
     def start_requests(self, task):
         """
         遍历 URL 列表生成下载请求。
-        去重缓存命中的 URL 直接复用结果，不生成 Request。
-        先在本地收集所有缓存/跳过结果，通过 pipeline 一次性写入 Redis，
-        再 yield Request，避免 worker 线程与初始化之间的竞态。
+        - 任务内重复 URL 自动去重，结果继承首次出现的下载结果
+        - 跨任务去重缓存命中的 URL 直接复用结果，不生成 Request
+        - 先在本地收集所有结果，通过 pipeline 一次性写入 Redis，
+          再 yield Request，避免 worker 线程与初始化之间的竞态
         """
         urls = self.get_download_urls(task)
         if isinstance(urls, str):
             raise TypeError(f"get_download_urls应返回列表, 实际返回了字符串: {urls[:100]}")
         if not urls:
             log.warning(f"任务{task.id}无下载URL")
-            for item in self.on_task_all_done(task, [], 0, 0, 0, 0) or []:
+            for item in self.on_task_all_done(task, [], 0, 0, 0, 0, 0) or []:
                 yield item
             return
 
@@ -291,9 +310,14 @@ return {0, total, success, fail, skipped}
             redis_key=self._redis_key, task_id=task_id
         )
 
+        run_id = os.urandom(8).hex()
+
         cached_count = 0
         skipped_count = 0
+        dup_count = 0
         result_mapping = {}
+        dup_to_source = {}
+        seen_urls = {}
         pending_requests = []
 
         for index, url in enumerate(urls):
@@ -302,6 +326,14 @@ return {0, total, success, fail, skipped}
                 skipped_count += 1
                 log.warning(f"任务{task_id} 跳过无效URL index={index}")
                 continue
+
+            url = url.strip()
+            if url in seen_urls:
+                dup_to_source[index] = seen_urls[url]
+                dup_count += 1
+                log.debug(f"任务{task_id} URL任务内去重 index={index} -> {seen_urls[url]}")
+                continue
+            seen_urls[url] = index
 
             if self._file_dedup:
                 try:
@@ -334,17 +366,23 @@ return {0, total, success, fail, skipped}
                     file_index=index,
                     file_path=file_path,
                     task=task,
+                    run_id=run_id,
                     callback=self.save_file,
                 )
             )
 
         # 清理旧 key 并通过 pipeline 原子写入初始状态
+        dup_key = setting.TAB_FILE_DUP.format(
+            redis_key=self._redis_key, task_id=task_id
+        )
         pipe = self._redisdb._redis.pipeline()
         pipe.delete(progress_key)
         pipe.delete(result_key)
+        pipe.delete(dup_key)
         progress_fields = {
             "total": total, "success": cached_count,
-            "fail": 0, "skipped": skipped_count,
+            "fail": 0, "skipped": skipped_count, "dup": dup_count,
+            "run_id": run_id,
         }
         for field, value in progress_fields.items():
             pipe.hset(progress_key, field, value)
@@ -353,17 +391,23 @@ return {0, total, success, fail, skipped}
             for field, value in result_mapping.items():
                 pipe.hset(result_key, field, value)
         pipe.expire(result_key, 86400)
+        if dup_to_source:
+            for dup_idx, src_idx in dup_to_source.items():
+                pipe.hset(dup_key, str(dup_idx), str(src_idx))
+            pipe.expire(dup_key, 86400)
         pipe.execute()
 
+        if dup_count > 0:
+            log.info(f"任务{task_id} 任务内URL去重{dup_count}个")
         if cached_count > 0:
-            log.info(f"任务{task_id} 去重命中{cached_count}/{total}个文件")
+            log.info(f"任务{task_id} 去重缓存命中{cached_count}/{total}个文件")
 
-        # 全部命中缓存或跳过，直接触发 on_task_all_done
-        if cached_count + skipped_count >= total:
-            result = self._assemble_results(task_id, total)
+        # 全部命中缓存/跳过/去重，直接触发 on_task_all_done
+        if cached_count + skipped_count + dup_count >= total:
             try:
+                result = self._assemble_results(task_id, total)
                 for item in self.on_task_all_done(
-                    task, result, cached_count, 0, skipped_count, total
+                    task, result, cached_count, 0, skipped_count, dup_count, total
                 ) or []:
                     yield item
             except Exception as e:
@@ -385,12 +429,16 @@ return {0, total, success, fail, skipped}
         file_index = request.file_index
         url = request.url
         file_path = request.file_path
+        run_id = getattr(request, "run_id", "")
 
         try:
             result_url = self.process_file(task_id, url, file_path, response)
         except Exception as e:
             log.error(f"任务{task_id} process_file异常 url={url} error={e}")
             raise
+
+        if not result_url:
+            log.warning(f"任务{task_id} process_file返回空值 url={url}, 将计为成功但结果为None")
 
         # 写入去重缓存（异常不影响主流程）
         if self._file_dedup and result_url:
@@ -399,26 +447,22 @@ return {0, total, success, fail, skipped}
             except Exception as e:
                 log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
 
-        # 原子操作: 检查key存在 + 写入结果 + 递增计数 + 检查完成
+        # 原子操作: 轮次校验 + 幂等写入结果 + 递增计数 + 检查完成
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
-        status, total, success, fail, skipped = self._record_and_check_done(
-            progress_key, result_key, "success", str(file_index), result_url or "",
+        status, total, success, fail, skipped, dup = self._record_and_check_done(
+            progress_key, result_key, "success", str(file_index), result_url or "", run_id,
         )
 
         if status == -1:
-            log.debug(f"任务{task_id} 进度key已清理, 跳过晚到回调的Redis写入")
-            try:
-                self.on_file_downloaded(task_id, url, result_url)
-            except Exception as e:
-                log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
+            log.debug(f"任务{task_id} 过期回调已丢弃 url={url}")
             return
 
-        log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped}/{total}] url={url}")
+        log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped + dup}/{total}] url={url}")
 
         try:
             self.on_file_downloaded(task_id, url, result_url)
@@ -427,10 +471,10 @@ return {0, total, success, fail, skipped}
 
         if status == 1:
             task = request.task
-            result = self._assemble_results(task_id, total)
             try:
+                result = self._assemble_results(task_id, total)
                 for item in self.on_task_all_done(
-                    task, result, success, fail, skipped, total
+                    task, result, success, fail, skipped, dup, total
                 ) or []:
                     yield item
             except Exception as e:
@@ -450,27 +494,24 @@ return {0, total, success, fail, skipped}
             yield request
             return
 
-        # 原子操作: 检查key存在 + 写入结果 + 递增计数 + 检查完成
+        run_id = getattr(request, "run_id", "")
+
+        # 原子操作: 轮次校验 + 幂等写入结果 + 递增计数 + 检查完成
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
-        status, total, success, fail, skipped = self._record_and_check_done(
-            progress_key, result_key, "fail", str(file_index), "",
+        status, total, success, fail, skipped, dup = self._record_and_check_done(
+            progress_key, result_key, "fail", str(file_index), "", run_id,
         )
 
         if status == -1:
-            log.debug(f"任务{task_id} 进度key已清理, 跳过晚到回调的Redis写入")
-            try:
-                self.on_file_failed(task_id, request.url, e)
-            except Exception as e_cb:
-                log.error(f"任务{task_id} on_file_failed回调异常 url={request.url} error={e_cb}")
-            yield request
+            log.debug(f"任务{task_id} 过期回调已丢弃 url={request.url}")
             return
 
-        log.error(f"任务{task_id} 文件下载失败 [{success + fail + skipped}/{total}] url={request.url}")
+        log.error(f"任务{task_id} 文件下载失败 [{success + fail + skipped + dup}/{total}] url={request.url}")
 
         try:
             self.on_file_failed(task_id, request.url, e)
@@ -479,10 +520,10 @@ return {0, total, success, fail, skipped}
 
         if status == 1:
             task = request.task
-            result = self._assemble_results(task_id, total)
             try:
+                result = self._assemble_results(task_id, total)
                 for item in self.on_task_all_done(
-                    task, result, success, fail, skipped, total
+                    task, result, success, fail, skipped, dup, total
                 ) or []:
                     yield item
             except Exception as e_done:
@@ -495,29 +536,52 @@ return {0, total, success, fail, skipped}
 
     def _assemble_results(self, task_id, total):
         """
-        从 Redis 结果 Hash 中一次性拉取所有文件处理结果，
-        按 0~total-1 顺序组装为有序列表返回。
+        从 Redis 中拉取文件处理结果和任务内重复映射，
+        按 0~total-1 顺序组装为有序列表，重复索引继承首次出现的结果。
+        使用 hscan_iter 分批读取，避免超大任务时 hgetall 的内存峰值。
         """
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
-        raw_data = self._redisdb.hgetall(result_key)
-        all_data = {
-            (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
-            for k, v in raw_data.items()
-        }
-        return [all_data.get(str(i)) or None for i in range(total)]
+        all_data = {}
+        for k, v in self._redisdb._redis.hscan_iter(result_key, count=1000):
+            key = k.decode() if isinstance(k, bytes) else k
+            val = v.decode() if isinstance(v, bytes) else v
+            all_data[key] = val
+        result = [all_data.get(str(i)) or None for i in range(total)]
+
+        dup_key = setting.TAB_FILE_DUP.format(
+            redis_key=self._redis_key, task_id=task_id
+        )
+        for dup_idx_raw, src_idx_raw in self._redisdb._redis.hscan_iter(dup_key, count=1000):
+            dup_idx = int(dup_idx_raw.decode() if isinstance(dup_idx_raw, bytes) else dup_idx_raw)
+            src_idx = int(src_idx_raw.decode() if isinstance(src_idx_raw, bytes) else src_idx_raw)
+            result[dup_idx] = result[src_idx]
+
+        return result
 
     def _cleanup_task_redis(self, task_id):
-        """清理任务相关的 Redis 进度和结果 key"""
+        """清理任务相关的 Redis 进度、结果和重复映射 key"""
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
+        dup_key = setting.TAB_FILE_DUP.format(
+            redis_key=self._redis_key, task_id=task_id
+        )
         self._redisdb.clear(progress_key)
         self._redisdb.clear(result_key)
+        self._redisdb.clear(dup_key)
+
+    def close(self):
+        """释放文件去重缓存资源"""
+        if self._file_dedup:
+            try:
+                self._file_dedup.close()
+            except Exception as e:
+                log.error(f"文件去重缓存关闭异常 error={e}")
 
     @classmethod
     def to_DebugFileSpider(cls, *args, **kwargs):
