@@ -11,6 +11,14 @@ TAB_FAILED_REQUESTS = "{redis_key}:z_failed_requests"
 TAB_FAILED_ITEMS = "{redis_key}:s_failed_items"
 # 爬虫状态表模版
 TAB_SPIDER_STATUS = "{redis_key}:h_spider_status"
+# 文件爬虫 - 进度追踪
+TAB_FILE_PROGRESS = "{redis_key}:h_file_progress:{task_id}"
+# 文件爬虫 - 文件结果
+TAB_FILE_RESULT = "{redis_key}:h_file_result:{task_id}"
+# 文件爬虫 - 任务内重复URL映射
+TAB_FILE_DUP = "{redis_key}:h_file_dup:{task_id}"
+# 文件爬虫 - 去重缓存
+TAB_FILE_DEDUP = "{redis_key}:h_file_dedup"
 # 用户池
 TAB_USER_POOL = "{redis_key}:h_{user_type}_pool"
 
