@@ -163,6 +163,46 @@ class MyFileSpider(feapder.FileSpider):
 
 ## 4. 使用示例
 
+### 启动方式（单进程 / master-worker 分离）
+
+FileSpider 支持两种启动方式：
+
+1. 单进程：`spider.start()`，适合本地调试
+2. 分离运行：master 仅负责派发任务，worker 仅负责下载处理，适合生产部署
+
+```python
+from feapder import ArgumentParser
+
+if __name__ == "__main__":
+    spider = MyFileSpider(
+        redis_key="my_file_spider",
+        task_table="file_task",
+        task_keys=["id", "file_urls"],
+    )
+
+    parser = ArgumentParser(description="MyFileSpider 文件下载爬虫")
+    parser.add_argument(
+        "--start_master",
+        action="store_true",
+        help="添加任务",
+        function=spider.start_monitor_task,
+    )
+    parser.add_argument(
+        "--start_worker",
+        action="store_true",
+        help="启动爬虫",
+        function=spider.start,
+    )
+    parser.start()
+```
+
+命令行启动：
+
+```bash
+uv run my_file_spider.py --start_master
+uv run my_file_spider.py --start_worker
+```
+
 ### 场景一：保存到本地磁盘
 
 最简单的用法，下载文件保存到本地：
@@ -330,7 +370,7 @@ FileSpider 提供两级去重：
 |------|--------|------|----------|
 | 不去重 | `None`（默认） | - | 每次都重新下载 |
 | Redis 去重 | `"redis"` | Redis Hash | 分布式共享，多进程安全 |
-| MySQL 去重 | `"mysql"` | MySQL 表（自动建表） | 持久化，长期缓存 |
+| MySQL 去重 | `"mysql"` | MySQL 表（按 `redis_key` 自动分表） | 持久化，隔离不同业务 |
 | 自定义去重 | `FileDedup` 实例 | 用户自定义 | 特殊需求 |
 
 ### 自定义去重

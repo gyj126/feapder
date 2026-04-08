@@ -62,10 +62,9 @@ if __name__ == "__main__":
 
     parser.start()
 
-    # 直接启动
-    # spider.start()  # 启动爬虫
-    # spider.start_monitor_task() # 添加任务
+    # 启动方式一：单进程（调试方便）
+    # spider.start()
 
-    # 通过命令行启动
-    # python ${file_name} --start_master  # 添加任务
-    # python ${file_name} --start_worker  # 启动爬虫
+    # 启动方式二：分离 master/worker（生产推荐）
+    # uv run ${file_name} --start_master  # 仅负责派发任务
+    # uv run ${file_name} --start_worker  # 仅负责消费下载

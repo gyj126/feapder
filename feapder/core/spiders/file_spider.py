@@ -8,6 +8,7 @@ Created on 2026/4/7
 
 import hashlib
 import os
+import re
 import warnings
 from urllib.parse import urlparse, unquote
 
@@ -125,7 +126,9 @@ class FileSpider(TaskSpider):
         elif file_dedup == "mysql":
             if file_dedup_expire is not None:
                 log.warning("file_dedup_expire仅在file_dedup='redis'时生效")
-            self._file_dedup = MysqlFileDedup()
+            redis_namespace = re.sub(r"[^0-9a-zA-Z_]+", "_", self._redis_key).strip("_")
+            dedup_table = f"file_dedup_{redis_namespace}" if redis_namespace else "file_dedup_default"
+            self._file_dedup = MysqlFileDedup(table=dedup_table)
         elif isinstance(file_dedup, FileDedup):
             self._file_dedup = file_dedup
         elif file_dedup is not None:

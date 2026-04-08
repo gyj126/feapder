@@ -15,6 +15,7 @@ import os
 from urllib.parse import urlparse, unquote
 
 import feapder
+from feapder import ArgumentParser
 from feapder.network.item import Item
 from feapder.utils.log import log
 
@@ -65,10 +66,13 @@ class OssResultSpider(feapder.FileSpider):
         # self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
-    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
+    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
         # result 与 get_download_urls 返回的列表严格位置对应
         # 例: ["https://oss.com/a.jpg", "https://oss.com/b.jpg", None, "https://oss.com/d.jpg"]
-        log.info(f"任务{task.id} 完成 成功={success_count} 失败={fail_count}")
+        log.info(
+            f"任务{task.id} 完成 成功={success_count} 失败={fail_count} "
+            f"跳过={skipped_count} 去重={dup_count}"
+        )
 
         # 组装结果 Item 写入结果表
         item = FileResultItem()
@@ -89,4 +93,18 @@ if __name__ == "__main__":
         task_table="file_task",
         task_keys=["id", "file_urls"],
     )
-    spider.start_monitor_task()
+
+    parser = ArgumentParser(description="OssResultSpider 文件下载爬虫")
+    parser.add_argument(
+        "--start_master",
+        action="store_true",
+        help="添加任务",
+        function=spider.start_monitor_task,
+    )
+    parser.add_argument(
+        "--start_worker",
+        action="store_true",
+        help="启动爬虫",
+        function=spider.start,
+    )
+    parser.start()
