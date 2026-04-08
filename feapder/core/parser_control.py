@@ -33,7 +33,7 @@ class ParserControl(threading.Thread):
 
     is_show_tip = False
 
-    # 实时统计已做任务数及失败任务数，若失败任务数/已做任务数>0.5 则报警
+    # 实时统计请求成功数及失败数，用于计算请求成功率报警
     _success_task_count = 0
     _failed_task_count = 0
     _total_task_count = 0
@@ -462,7 +462,7 @@ class ParserControl(threading.Thread):
 class AirSpiderParserControl(ParserControl):
     is_show_tip = False
 
-    # 实时统计已做任务数及失败任务数，若失败任务数/已做任务数>0.5 则报警
+    # 实时统计请求成功数及失败数，用于计算请求成功率报警
     _success_task_count = 0
     _failed_task_count = 0
 
