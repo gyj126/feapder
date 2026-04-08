@@ -18,9 +18,11 @@ __all__ = [
     "Spider",
     "TaskSpider",
     "BatchSpider",
+    "FileSpider",
     "BaseParser",
     "TaskParser",
     "BatchParser",
+    "FileParser",
     "Request",
     "Response",
     "Item",
@@ -28,8 +30,8 @@ __all__ = [
     "ArgumentParser",
 ]
 
-from feapder.core.spiders import AirSpider, Spider, TaskSpider, BatchSpider
-from feapder.core.base_parser import BaseParser, TaskParser, BatchParser
+from feapder.core.spiders import AirSpider, Spider, TaskSpider, BatchSpider, FileSpider
+from feapder.core.base_parser import BaseParser, TaskParser, BatchParser, FileParser
 from feapder.network.request import Request
 from feapder.network.response import Response
 from feapder.network.item import Item, UpdateItem

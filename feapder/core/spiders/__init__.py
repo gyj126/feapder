@@ -8,9 +8,10 @@ Created on 2020/4/22 12:08 AM
 @email: boris_liu@foxmail.com
 """
 
-__all__ = ["AirSpider", "TaskSpider", "Spider", "BatchSpider"]
+__all__ = ["AirSpider", "TaskSpider", "Spider", "BatchSpider", "FileSpider"]
 
 from feapder.core.spiders.air_spider import AirSpider
 from feapder.core.spiders.spider import Spider
 from feapder.core.spiders.task_spider import TaskSpider
 from feapder.core.spiders.batch_spider import BatchSpider
+from feapder.core.spiders.file_spider import FileSpider
