@@ -37,7 +37,7 @@ CREATE TABLE `file_task` (
 | 方法 | 说明 |
 |------|------|
 | `get_download_urls(task)` | 从 task 中提取文件 URL 列表，返回 `List[str]` |
-| `on_task_all_done(task_id, success_count, fail_count, total_count, results)` | 任务所有文件处理完毕的回调，在此 yield Item 或 update_task_batch 更新状态 |
+| `on_task_all_done(task, result, success_count, fail_count, total_count)` | 任务所有文件处理完毕的回调，在此 yield Item 或 update_task_batch 更新状态 |
 
 ### 可选重写
 
@@ -66,9 +66,10 @@ save_file (框架层，不应重写)
 ### `on_task_all_done` 参数说明
 
 ```python
-def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+def on_task_all_done(self, task, result, success_count, fail_count, total_count):
     """
-    results: List[str|None]
+    task: PerfectDict - 任务对象，包含 task_keys 指定的字段，可通过 task.id 获取任务 ID
+    result: List[str|None]
     - 与 get_download_urls 返回的列表严格位置对应
     - 成功: 文件存储位置（本地路径或云存储 URL）
     - 失败: None
@@ -110,11 +111,11 @@ class LocalFileSpider(feapder.FileSpider):
     def get_download_urls(self, task):
         return json.loads(task.file_urls)
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
         if fail_count == 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 
 
 if __name__ == "__main__":
@@ -150,18 +151,18 @@ class OssFileSpider(feapder.FileSpider):
     def get_file_path(self, task, url, index):
         """返回 OSS 存储 key（不是本地路径）"""
         filename = os.path.basename(unquote(urlparse(url).path))
-        return f"images/{task.id}/{index}_{filename}"
+        return f"files/{task.id}/{index}_{filename}"
 
     def process_file(self, task_id, url, file_path, response):
         """上传 OSS，返回云存储 URL"""
         self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
         if success_count > 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 
 
 if __name__ == "__main__":
@@ -201,23 +202,23 @@ class OssResultSpider(feapder.FileSpider):
 
     def get_file_path(self, task, url, index):
         filename = os.path.basename(unquote(urlparse(url).path))
-        return f"images/{task.id}/{index}_{filename}"
+        return f"files/{task.id}/{index}_{filename}"
 
     def process_file(self, task_id, url, file_path, response):
         self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
-        # results 与 get_download_urls 返回的列表严格位置对应，下载失败的用null占位。如需去空，手动lamda表达式过滤即可。
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
+        # result 与 get_download_urls 返回的列表严格位置对应，下载失败的用 None 占位
         item = FileResultItem()
-        item.task_id = task_id
-        item.result_urls = json.dumps(results)
+        item.task_id = task.id
+        item.result_urls = result
         yield item
 
         if fail_count == 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 ```
 
 ### 场景四：启用文件去重
@@ -233,8 +234,8 @@ class DedupFileSpider(feapder.FileSpider):
     def get_download_urls(self, task):
         return json.loads(task.file_urls)
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
-        yield self.update_task_batch(task_id, 1 if fail_count == 0 else -1)
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
+        yield self.update_task_batch(task.id, 1 if fail_count == 0 else -1)
 
 
 if __name__ == "__main__":

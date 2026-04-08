@@ -30,11 +30,11 @@ class LocalFileSpider(feapder.FileSpider):
     def on_file_downloaded(self, task_id, url, file_path):
         log.info(f"任务{task_id} 文件保存成功 path={file_path}")
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
         if fail_count == 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 
 
 if __name__ == "__main__":

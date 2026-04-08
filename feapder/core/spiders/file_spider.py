@@ -19,6 +19,7 @@ from feapder.dedup.file_dedup import FileDedup, RedisFileDedup, MysqlFileDedup
 from feapder.network.item import UpdateItem
 from feapder.network.request import Request
 from feapder.utils.log import log
+from feapder.utils.perfect_dict import PerfectDict
 
 CONSOLE_PIPELINE_PATH = "feapder.pipelines.console_pipeline.ConsolePipeline"
 
@@ -189,17 +190,17 @@ class FileSpider(TaskSpider):
         """
         pass
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
-        @param task_id: 任务 ID
+        @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
+        @param result: List[str|None] - 每个文件的处理结果，
+            顺序与 get_download_urls 返回的列表一致。
+            成功为文件存储位置，失败为 None
         @param success_count: 成功数
         @param fail_count: 失败数
         @param total_count: 总数
-        @param results: List[str|None] - 每个文件的处理结果，
-            顺序与 get_download_urls 返回的列表一致。
-            成功为文件存储位置，失败为 None
         """
         pass
 
@@ -251,8 +252,8 @@ return 0
         urls = self.get_download_urls(task)
         if not urls:
             log.warning(f"任务{task.id}无下载URL")
-            for result in self.on_task_all_done(task.id, 0, 0, 0, []) or []:
-                yield result
+            for item in self.on_task_all_done(task, [], 0, 0, 0) or []:
+                yield item
             return
 
         total = len(urls)
@@ -306,6 +307,7 @@ return 0
                 task_id=task_id,
                 file_index=index,
                 file_path=file_path,
+                task_data=dict(task),
                 callback=self.save_file,
             )
 
@@ -314,11 +316,11 @@ return 0
 
         # 全部命中缓存或跳过，直接触发 on_task_all_done
         if cached_count + skipped_count >= total:
-            results = self._assemble_results(task_id, total)
-            for result in self.on_task_all_done(
-                task_id, cached_count, skipped_count, total, results
+            result = self._assemble_results(task_id, total)
+            for item in self.on_task_all_done(
+                task, result, cached_count, skipped_count, total
             ) or []:
-                yield result
+                yield item
             self._cleanup_task_redis(task_id)
 
     def save_file(self, request, response):
@@ -360,11 +362,12 @@ return 0
             log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
 
         if is_first_done:
-            results = self._assemble_results(task_id, total)
-            for result in self.on_task_all_done(
-                task_id, success, fail, total, results
+            task = PerfectDict(_dict=request.task_data)
+            result = self._assemble_results(task_id, total)
+            for item in self.on_task_all_done(
+                task, result, success, fail, total
             ) or []:
-                yield result
+                yield item
             self._cleanup_task_redis(task_id)
 
     def failed_request(self, request, response, e):
@@ -402,11 +405,12 @@ return 0
             log.error(f"任务{task_id} on_file_failed回调异常 url={request.url} error={e_cb}")
 
         if is_first_done:
-            results = self._assemble_results(task_id, total)
-            for result in self.on_task_all_done(
-                task_id, success, fail, total, results
+            task = PerfectDict(_dict=request.task_data)
+            result = self._assemble_results(task_id, total)
+            for item in self.on_task_all_done(
+                task, result, success, fail, total
             ) or []:
-                yield result
+                yield item
             self._cleanup_task_redis(task_id)
 
         yield request

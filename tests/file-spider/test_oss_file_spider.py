@@ -36,7 +36,7 @@ class OssFileSpider(feapder.FileSpider):
     def get_file_path(self, task, url, index):
         """返回 OSS 存储 key（不是本地路径）"""
         filename = os.path.basename(unquote(urlparse(url).path))
-        return f"images/{task.id}/{index}_{filename}"
+        return f"files/{task.id}/{index}_{filename}"
 
     def process_file(self, task_id, url, file_path, response):
         """上传到 OSS，返回云存储 URL"""
@@ -45,12 +45,12 @@ class OssFileSpider(feapder.FileSpider):
         log.info(f"任务{task_id} 上传成功 url={cloud_url}")
         return cloud_url
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
-        log.info(f"任务{task_id} 完成 成功={success_count} 失败={fail_count}")
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
+        log.info(f"任务{task.id} 完成 成功={success_count} 失败={fail_count}")
         if success_count > 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 
 
 if __name__ == "__main__":

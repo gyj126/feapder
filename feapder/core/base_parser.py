@@ -263,17 +263,17 @@ class FileParser(TaskParser):
         """
         pass
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
-        @param task_id: 任务 ID
+        @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
+        @param result: List[str|None] - 每个文件的处理结果，
+            顺序与 get_download_urls 返回的列表一致。
+            成功为文件存储位置（本地路径或云存储 URL），失败为 None
         @param success_count: 成功数
         @param fail_count: 失败数
         @param total_count: 总数
-        @param results: List[str|None] - 每个文件的处理结果，
-            顺序与 get_download_urls 返回的列表一致。
-            成功为文件存储位置（本地路径或云存储 URL），失败为 None
         """
         pass
 

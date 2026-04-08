@@ -59,28 +59,28 @@ class OssResultSpider(feapder.FileSpider):
 
     def get_file_path(self, task, url, index):
         filename = os.path.basename(unquote(urlparse(url).path))
-        return f"images/{task.id}/{index}_{filename}"
+        return f"files/{task.id}/{index}_{filename}"
 
     def process_file(self, task_id, url, file_path, response):
         # self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
-    def on_task_all_done(self, task_id, success_count, fail_count, total_count, results):
-        # results 与 get_download_urls 返回的列表严格位置对应
+    def on_task_all_done(self, task, result, success_count, fail_count, total_count):
+        # result 与 get_download_urls 返回的列表严格位置对应
         # 例: ["https://oss.com/a.jpg", "https://oss.com/b.jpg", None, "https://oss.com/d.jpg"]
-        log.info(f"任务{task_id} 完成 成功={success_count} 失败={fail_count}")
+        log.info(f"任务{task.id} 完成 成功={success_count} 失败={fail_count}")
 
         # 组装结果 Item 写入结果表
         item = FileResultItem()
-        item.task_id = task_id
-        item.result_urls = json.dumps(results)
+        item.task_id = task.id
+        item.result_urls = result
         yield item
 
         # 更新任务状态
         if fail_count == 0:
-            yield self.update_task_batch(task_id, 1)
+            yield self.update_task_batch(task.id, 1)
         else:
-            yield self.update_task_batch(task_id, -1)
+            yield self.update_task_batch(task.id, -1)
 
 
 if __name__ == "__main__":
