@@ -37,6 +37,11 @@ MONGO_USER_NAME = os.getenv("MONGO_USER_NAME")
 MONGO_USER_PASS = os.getenv("MONGO_USER_PASS")
 MONGO_URL = os.getenv("MONGO_URL")
 
+# KAFKA
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_PRODUCER_CONFIG = {}  # confluent-kafka Producer 额外配置，如 {"acks": "all"}
+KAFKA_FLUSH_TIMEOUT = int(os.getenv("KAFKA_FLUSH_TIMEOUT", 10))  # flush超时时间（秒）
+
 # REDIS
 # ip:port 多个可写为列表或者逗号隔开 如 ip1:port1,ip2:port2 或 ["ip1:port1", "ip2:port2"]
 REDISDB_IP_PORTS = os.getenv("REDISDB_IP_PORTS")
@@ -53,6 +58,7 @@ ITEM_PIPELINES = [
     # "feapder.pipelines.mongo_pipeline.MongoPipeline",
     # "feapder.pipelines.csv_pipeline.CsvPipeline",
     # "feapder.pipelines.console_pipeline.ConsolePipeline",
+    # "feapder.pipelines.kafka_pipeline.KafkaPipeline",
 ]
 CSV_EXPORT_PATH = "data/csv"  # CSV文件保存路径，支持相对路径和绝对路径
 EXPORT_DATA_MAX_FAILED_TIMES = 10  # 导出数据时最大的失败次数，包括保存和更新，超过这个次数报警
