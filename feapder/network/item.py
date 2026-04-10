@@ -174,3 +174,15 @@ class UpdateItem(Item):
             self.__update_key__ = keys
         else:
             self.__update_key__ = (keys,)
+
+
+class KafkaItem(Item):
+    """
+    Kafka消息Item，table_name为topic名称。
+    通过message字段设置消息内容，通过key字段设置消息key。
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.__dict__.setdefault("message", None)
+        self.__dict__.setdefault("key", None)

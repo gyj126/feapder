@@ -25,6 +25,7 @@ __all__ = [
     "Response",
     "Item",
     "UpdateItem",
+    "KafkaItem",
     "ArgumentParser",
 ]
 
@@ -32,5 +33,5 @@ from feapder.core.spiders import AirSpider, Spider, TaskSpider, BatchSpider
 from feapder.core.base_parser import BaseParser, TaskParser, BatchParser
 from feapder.network.request import Request
 from feapder.network.response import Response
-from feapder.network.item import Item, UpdateItem
+from feapder.network.item import Item, UpdateItem, KafkaItem
 from feapder.utils.custom_argparse import ArgumentParser

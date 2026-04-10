@@ -70,7 +70,7 @@ def main():
     if args.item:
         c = Choice(
             "请选择Item类型",
-            ["Item", "Item 支持字典赋值", "UpdateItem", "UpdateItem 支持字典赋值"],
+            ["Item", "Item 支持字典赋值", "UpdateItem", "UpdateItem 支持字典赋值", "KafkaItem table_name为topic名称"],
             icon_style=StringStyle(fore=Fore.green),
             selected_style=StringStyle(fore=Fore.green),
         )
@@ -79,10 +79,13 @@ def main():
         if choice:
             index, value = choice
             item_name = args.item
-            item_type = "Item" if index <= 1 else "UpdateItem"
-            support_dict = index in (1, 3)
 
-            CreateItem().create(item_name, item_type, support_dict)
+            if index == 4:
+                CreateKafkaItem().create(item_name)
+            else:
+                item_type = "Item" if index <= 1 else "UpdateItem"
+                support_dict = index in (1, 3)
+                CreateItem().create(item_name, item_type, support_dict)
 
     elif args.spider:
         c = Choice(

@@ -2,7 +2,7 @@
 
 Pipeline是数据入库时流经的管道，用户可自定义，以便对接其他数据库。
 
-框架已内置mysql、mongo、csv管道，其他管道作为扩展方式提供，可从[feapder_pipelines](https://github.com/Boris-code/feapder_pipelines)项目中按需安装
+框架已内置mysql、mongo、csv、kafka管道，其他管道作为扩展方式提供，可从[feapder_pipelines](https://github.com/Boris-code/feapder_pipelines)项目中按需安装
 
 项目地址：https://github.com/Boris-code/feapder_pipelines
 
@@ -16,10 +16,88 @@ ITEM_PIPELINES = [
     # "feapder.pipelines.mongo_pipeline.MongoPipeline",
     # "feapder.pipelines.csv_pipeline.CsvPipeline",
     # "feapder.pipelines.console_pipeline.ConsolePipeline",
+    # "feapder.pipelines.kafka_pipeline.KafkaPipeline",
 ]
 ```
 
 然后 爬虫中`yield`的`item`会流经选择的pipeline自动存储
+
+### KafkaPipeline说明
+
+KafkaPipeline基于`confluent-kafka`库，将爬虫数据发送到Kafka topic。需配合`KafkaItem`使用，通过`message`字段设置消息内容，通过`key`字段设置消息key。
+
+**依赖安装：**
+
+```bash
+pip install confluent-kafka
+```
+
+**配置项（setting.py）：**
+
+```python
+# KAFKA
+KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"  # Kafka broker地址，支持环境变量 KAFKA_BOOTSTRAP_SERVERS
+KAFKA_PRODUCER_CONFIG = {}  # confluent-kafka Producer 额外配置，如 {"acks": "all", "retries": 3}
+KAFKA_FLUSH_TIMEOUT = 10  # flush超时时间（秒），支持环境变量 KAFKA_FLUSH_TIMEOUT
+```
+
+**启用方式：**
+
+```python
+ITEM_PIPELINES = [
+    "feapder.pipelines.kafka_pipeline.KafkaPipeline",
+]
+```
+
+#### 创建KafkaItem
+
+使用`feapder create -i`命令创建，无需数据库连接：
+
+```bash
+feapder create -i <topic_name>
+# 选择 "KafkaItem table_name为topic名称"
+```
+
+例如创建一个topic为`spider_data_topic`的KafkaItem：
+
+```bash
+feapder create -i spider_data_topic
+```
+
+生成的`spider_data_topic_item.py`：
+
+```python
+from feapder import KafkaItem
+
+
+class SpiderDataTopicItem(KafkaItem):
+    __table_name__ = "spider_data_topic"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(**kwargs)
+```
+
+#### 使用KafkaItem
+
+在爬虫中通过`message`字段设置消息内容，通过`key`字段指定消息key（可选）：
+
+```python
+from items.spider_data_topic_item import SpiderDataTopicItem
+
+def parse(self, request, response):
+    item = SpiderDataTopicItem()
+    item.message = {
+        "url": response.url,
+        "title": response.xpath("//title/text()").extract_first(),
+        "content": response.xpath("//body//text()").extract(),
+    }
+    item.key = "custom_key"  # 可选，用于Kafka分区路由
+    yield item
+```
+
+- `message`：消息内容，支持dict（自动JSON序列化）、str、bytes
+- `key`：消息key，可选，用于Kafka分区路由
+- `__table_name__`：对应Kafka的topic名称
 
 ## 自定义pipeline
 
