@@ -40,7 +40,7 @@ class BatchSpider(BatchParser, Scheduler):
         task_keys,
         task_state="state",
         min_task_count=10000,
-        check_task_interval=5,
+        check_task_interval=10,
         task_limit=10000,
         related_redis_key=None,
         related_batch_record=None,
@@ -207,6 +207,8 @@ class BatchSpider(BatchParser, Scheduler):
         is_first_check = True
         while True:
             try:
+                self.update_task_done_count()
+
                 if self.check_batch(is_first_check):  # 该批次已经做完
                     if self._keep_alive:
                         is_first_check = True
