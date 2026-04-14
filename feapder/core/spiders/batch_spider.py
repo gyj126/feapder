@@ -207,7 +207,8 @@ class BatchSpider(BatchParser, Scheduler):
         is_first_check = True
         while True:
             try:
-                self.update_task_done_count()
+                if not is_first_check:
+                    self.update_task_done_count()
 
                 if self.check_batch(is_first_check):  # 该批次已经做完
                     if self._keep_alive:
