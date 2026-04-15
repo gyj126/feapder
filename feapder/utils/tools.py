@@ -2661,20 +2661,21 @@ def wechat_warning(
         return False
 
 
-def feishu_warning(message, message_prefix=None, rate_limit=None, url=None, user=None):
+def feishu_warning(message, message_prefix=None, rate_limit=None, url=None, user=None, level=None):
     """
+    发送飞书卡片消息告警
 
     Args:
-        message:
-        message_prefix:
-        rate_limit:
-        url:
-        user: {"open_id":"ou_xxxxx", "name":"xxxx"} 或 [{"open_id":"ou_xxxxx", "name":"xxxx"}]
+        message: 告警内容
+        message_prefix: 告警标题前缀，有值时作为卡片标题
+        rate_limit: 频率限制（秒）
+        url: 飞书机器人webhook地址
+        user: {"open_id":"ou_xxxxx"}、{"user_id":"u_xxxxx"} 或列表，name为可选备注字段
+        level: 告警级别，支持 "debug"/"info"/"warning"/"error"，影响卡片头部颜色
 
     Returns:
-
+        True / False
     """
-    # 为了加载最新的配置
     rate_limit = rate_limit if rate_limit is not None else setting.WARNING_INTERVAL
     url = url or setting.FEISHU_WARNING_URL
     user = user or setting.FEISHU_WARNING_USER
@@ -2689,29 +2690,57 @@ def feishu_warning(message, message_prefix=None, rate_limit=None, url=None, user
     if isinstance(user, dict):
         user = [user] if user else []
 
-    at = ""
-    if setting.FEISHU_WARNING_ALL:
-        at = '<at user_id="all">所有人</at>'
-    elif user:
-        at = " ".join(
-            [f'<at user_id="{u.get("open_id")}">{u.get("name")}</at>' for u in user]
-        )
+    level_colors = {"debug": "blue", "info": "green", "warning": "orange", "error": "red"}
+    color = level_colors.get((level or "info").lower(), "blue")
+    title = message_prefix or "feapder报警系统"
 
-    data = {"msg_type": "text", "content": {"text": at + message}}
+    elements = []
+    elements.append({"tag": "div", "text": {"tag": "lark_md", "content": message}})
+
+    fields = [{"key": "告警时间", "value": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}]
+    elements.append({"tag": "hr"})
+    for field in fields:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**{field['key']}:** {field['value']}"}})
+
+    at_all = setting.FEISHU_WARNING_ALL
+    at_user_list = []
+    if not at_all and user:
+        for user_info in user:
+            if not isinstance(user_info, dict):
+                continue
+            user_id = user_info.get("open_id") or user_info.get("user_id")
+            if user_id:
+                at_user_list.append(f"<at id={user_id}></at>")
+
+    if at_all or at_user_list:
+        if at_all:
+            at_content = "<at id=all></at>"
+        else:
+            at_content = " ".join(at_user_list)
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": at_content}})
+
+    data = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "template": color,
+            },
+            "elements": elements,
+        },
+    }
     headers = {"Content-Type": "application/json"}
 
     try:
-        response = requests.post(
-            url, headers=headers, data=json.dumps(data).encode("utf8")
-        )
+        response = requests.post(url, headers=headers, data=json.dumps(data).encode("utf8"))
         result = response.json()
         response.close()
-        if result.get("StatusCode") == 0:
+        if result.get("code") == 0:
             return True
         else:
             raise Exception(result.get("msg"))
     except Exception as e:
-        log.error("报警发送失败。 报警内容 {}, error: {}".format(message, e))
+        log.error(f"报警发送失败。报警内容 {message}, error: {e}")
         return False
 
 
@@ -2782,7 +2811,7 @@ def send_msg(msg, level="DEBUG", message_prefix="", keyword="feapder报警系统
         wechat_warning(keyword + msg, message_prefix=message_prefix)
 
     if setting.FEISHU_WARNING_URL:
-        feishu_warning(keyword + msg, message_prefix=message_prefix)
+        feishu_warning(keyword + msg, message_prefix=message_prefix, level=level)
 
     if setting.QMSG_WARNING_URL:
         qmsg_warning(keyword + msg, message_prefix=message_prefix)
