@@ -12,7 +12,7 @@ def __init__(
     task_keys,
     task_state="state",
     min_task_count=10000,
-    check_task_interval=5,
+    check_task_interval=10,
     task_limit=10000,
     related_redis_key=None,
     related_batch_record=None,
