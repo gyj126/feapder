@@ -681,9 +681,7 @@ class BatchSpider(BatchParser, Scheduler):
                 if not is_first_check:
                     if self._batch_timeout:  # 之前报警过已超时，现在已完成，发出恢复消息
                         self._batch_timeout = False
-                        self.send_msg(msg, level="error")
-                    else:
-                        self.send_msg(msg)
+                    self.send_msg(msg, level="info")
 
                 # 判断下一批次是否到
                 if time_difference >= datetime.timedelta(days=self._batch_interval):
@@ -827,7 +825,7 @@ class BatchSpider(BatchParser, Scheduler):
                             # 发送警报
                             self.send_msg(
                                 msg,
-                                level="error",
+                                level="info",
                                 message_prefix="《{}》批次可能超时".format(self._batch_name),
                             )
                             self._batch_timeout = True
