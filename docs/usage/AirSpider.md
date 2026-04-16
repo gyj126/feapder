@@ -124,7 +124,7 @@ def validate(self, request, response):
     @summary: 校验函数, 可用于校验response是否正确
     若函数内抛出异常，则重试请求
     若返回True 或 None，则进入解析函数
-    若返回False，则抛弃当前请求
+    若返回False，则丢弃当前请求，并调用 failed_request 回调（request.is_abandoned=True）
     可通过request.callback_name 区分不同的回调函数，编写不同的校验逻辑
     ---------
     @param request:
@@ -157,6 +157,13 @@ def validate(self, request, response):
             raise Exception("非法页面")
 
 默认最大重试次数为100次，我们可以引入配置文件或自定义配置来修改重试次数，详情参考[配置文件](source_code/配置文件.md)
+
+当请求最终失败（超过重试次数，或 `validate` 返回 `False`）时会回调 `failed_request`。
+`failed_request` 的返回值支持 `Request / Item / callback / None`：
+- 返回 `Request`：继续调度该请求
+- 返回 `Item`：进入 item 流程
+- 返回 `callback`：进入回调执行流程
+- 返回 `None`：不追加处理
 
 
 ## 10. 爬虫配置

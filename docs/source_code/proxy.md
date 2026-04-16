@@ -43,7 +43,7 @@ ip:port
         def parse(self, request, response):
             print(response)
         
-        def exception_request(self, request, response):
+        def exception_request(self, request, response, e):
             request.del_proxy()
             
     ```

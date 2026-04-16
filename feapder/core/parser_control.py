@@ -157,6 +157,52 @@ class ParserControl(threading.Thread):
 
                         # 校验
                         if parser.validate(request, response) == False:
+                            request.is_abandoned = True
+                            request.error_msg = "validate返回False, 请求被丢弃"
+                            request.response = str(response)
+                            results = parser.failed_request(
+                                request,
+                                response,
+                                Exception(
+                                    f"validate返回False, 请求被丢弃 url: {request.url}"
+                                ),
+                            ) or [request]
+                            if not isinstance(results, Iterable):
+                                raise Exception(
+                                    "%s.%s返回值必须可迭代"
+                                    % (parser.name, "failed_request")
+                                )
+                            for result in results:
+                                if isinstance(result, Request):
+                                    if setting.SAVE_FAILED_REQUEST:
+                                        if used_download_midware_enable:
+                                            original_request = (
+                                                Request.from_dict(
+                                                    eval(request_redis)
+                                                )
+                                                if request_redis
+                                                else result
+                                            )
+                                            original_request.error_msg = (
+                                                request.error_msg
+                                            )
+                                            original_request.response = (
+                                                request.response
+                                            )
+                                            self._request_buffer.put_failed_request(
+                                                original_request
+                                            )
+                                        else:
+                                            self._request_buffer.put_failed_request(
+                                                result
+                                            )
+                                elif callable(result):
+                                    self._request_buffer.put_request(result)
+                                elif isinstance(result, Item):
+                                    self._item_buffer.put_item(result)
+                                    del_request_redis_after_item_to_db = True
+                            del_request_redis_after_request_to_db = True
+                            self.__class__._failed_task_count += 1
                             break
 
                     else:
@@ -496,6 +542,26 @@ class AirSpiderParserControl(ParserControl):
             except Exception as e:
                 log.exception(e)
 
+    def dispatch_failed_results(self, parser, results):
+        if not isinstance(results, Iterable):
+            raise Exception("%s.%s返回值必须可迭代" % (parser.name, "failed_request"))
+
+        for result in results:
+            if isinstance(result, Request):
+                result.parser_name = result.parser_name or parser.name
+                if result.request_sync:
+                    self.deal_request(result)
+                else:
+                    self._request_buffer.put_request(result)
+            elif callable(result):
+                self._item_buffer.put_item(result)
+            elif isinstance(result, Item):
+                self._item_buffer.put_item(result)
+            elif result is not None:
+                raise TypeError(
+                    f"{parser.name}.failed_request result expect Request、Item or callback, bug get type: {type(result)}"
+                )
+
     def deal_request(self, request):
         response = None
 
@@ -561,6 +627,18 @@ class AirSpiderParserControl(ParserControl):
 
                         # 校验
                         if parser.validate(request, response) == False:
+                            request.is_abandoned = True
+                            request.error_msg = "validate返回False, 请求被丢弃"
+                            request.response = str(response)
+                            results = parser.failed_request(
+                                request,
+                                response,
+                                Exception(
+                                    f"validate返回False, 请求被丢弃 url: {request.url}"
+                                ),
+                            ) or []
+                            self.dispatch_failed_results(parser, results)
+                            self.__class__._failed_task_count += 1
                             break
 
                     else:
@@ -677,16 +755,10 @@ class AirSpiderParserControl(ParserControl):
                             request.retry_times + 1 > setting.SPIDER_MAX_RETRY_TIMES
                             or request.is_abandoned
                         ):
-                            self.__class__._failed_task_count += 1  # 记录失败任务数
-
                             # 处理failed_request的返回值 request 或 func
-                            results = parser.failed_request(request, response, e) or [
-                                request
-                            ]
-                            if not isinstance(results, Iterable):
-                                raise Exception(
-                                    "%s.%s返回值必须可迭代" % (parser.name, "failed_request")
-                                )
+                            results = parser.failed_request(request, response, e) or []
+                            self.dispatch_failed_results(parser, results)
+                            self.__class__._failed_task_count += 1  # 记录失败任务数
 
                             log.info(
                                 """

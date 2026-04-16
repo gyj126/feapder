@@ -34,7 +34,7 @@ class BaseParser(object):
         @summary: 校验函数, 可用于校验response是否正确
         若函数内抛出异常，则重试请求
         若返回True 或 None，则进入解析函数
-        若返回False，则抛弃当前请求
+        若返回False，则丢弃当前请求，并调用 failed_request 回调（request.is_abandoned=True）
         可通过request.callback_name 区分不同的回调函数，编写不同的校验逻辑
         ---------
         @param request:
@@ -57,24 +57,27 @@ class BaseParser(object):
 
         pass
 
-    def exception_request(self, request, response):
+    def exception_request(self, request, response, e):
         """
         @summary: 请求或者parser里解析出异常的request
         ---------
         @param request:
         @param response:
+        @param e: 异常
         ---------
         @result: request / callback / None (返回值必须可迭代)
         """
 
         pass
 
-    def failed_request(self, request, response):
+    def failed_request(self, request, response, e):
         """
-        @summary: 超过最大重试次数的request
+        @summary: 失败请求回调（超过最大重试次数或 validate 返回False）
         可返回修改后的request  若不返回request，则将传进来的request直接人redis的failed表。否则将修改后的request入failed表
         ---------
         @param request:
+        @param response:
+        @param e: 异常
         ---------
         @result: request / item / callback / None (返回值必须可迭代)
         """

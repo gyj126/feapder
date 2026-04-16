@@ -200,23 +200,26 @@ id, url = task["id"], task["url"]
 有些任务，可能就是有问题的，我们需要将其更新为-1，防止爬虫一直重试。除了在解析函数中判断当前任务是否有效外，框架还提供了两个函数
 
 ```
-def exception_request(self, request, response):
+def exception_request(self, request, response, e):
     """
     @summary: 请求或者parser里解析出异常的request
     ---------
     @param request:
     @param response:
+    @param e: 异常
     ---------
     @result: request / callback / None (返回值必须可迭代)
     """
 
     pass
 
-def failed_request(self, request, response):
+def failed_request(self, request, response, e):
     """
-    @summary: 超过最大重试次数的request
+    @summary: 失败请求回调（超过最大重试次数或 validate 返回False）
     ---------
     @param request:
+    @param response:
+    @param e: 异常
     ---------
     @result: request / item / callback / None (返回值必须可迭代)
     """
@@ -226,13 +229,15 @@ def failed_request(self, request, response):
 
 `exception_request`：处理请求失败或解析出异常的request，我们可以在这里切换request的cookie等，然后再`yield request`返回处理后的request
 
-`failed_request`：处理超过最大重试次数的request。我们可以在这里将任务状态更新为-1
+`failed_request`：处理失败请求（超过最大重试次数或 `validate` 返回 `False`）。我们可以在这里将任务状态更新为-1
 
-    def failed_request(self, request, response):
+    def failed_request(self, request, response, e):
         """
-        @summary: 超过最大重试次数的request
+        @summary: 失败请求回调（超过最大重试次数或 validate 返回False）
         ---------
         @param request:
+        @param response:
+        @param e: 异常
         ---------
         @result: request / item / callback / None (返回值必须可迭代)
         """

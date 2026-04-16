@@ -87,11 +87,13 @@ def parse(self, request, response):
 def parse(self, request, response):
     yield self.update_task_batch(request.task_id, 1) # 更新任务状态为1
 
-def failed_request(self, request, response):
+def failed_request(self, request, response, e):
     """
-    @summary: 超过最大重试次数的request
+    @summary: 失败请求回调（超过最大重试次数或 validate 返回False）
     ---------
     @param request:
+    @param response:
+    @param e: 异常
     ---------
     @result: request / item / callback / None (返回值必须可迭代)
     """
