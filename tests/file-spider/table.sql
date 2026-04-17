@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS `file_task` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `file_urls` text COMMENT '待下载文件URL列表，JSON数组格式',
   `state` int(11) DEFAULT 0 COMMENT '任务状态: 0待做 2下载中 1完成 -1失败',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_state` (`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 结果表（场景三使用）

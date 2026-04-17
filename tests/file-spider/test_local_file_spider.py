@@ -24,8 +24,9 @@ class LocalFileSpider(feapder.FileSpider):
         MYSQL_USER_PASS="feapder123",
     )
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
     def on_file_downloaded(self, task_id, url, file_path):
         log.info(f"任务{task_id} 文件保存成功 path={file_path}")

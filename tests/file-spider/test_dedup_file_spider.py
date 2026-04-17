@@ -5,8 +5,8 @@
 通过 file_dedup 参数启用去重，同一 URL 跨任务不重复下载。
 
 去重行为：
-- start_requests 中遍历 URL 列表时，先查去重缓存
-- 缓存命中：直接复用已有结果，不生成 Request，不重复下载
+- 框架在派发用户 yield 的下载请求前，先查去重缓存
+- 缓存命中：直接复用已有结果，不下发该请求，不重复下载
 - 缓存未命中：正常下载，成功后自动写入去重缓存
 - 跨任务共享：不同任务中出现的相同 URL 只下载一次
 """
@@ -29,8 +29,9 @@ class DedupFileSpider(feapder.FileSpider):
         MYSQL_USER_PASS="feapder123",
     )
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
     def on_file_downloaded(self, task_id, url, file_path):
         log.info(f"任务{task_id} 文件就绪 path={file_path}")

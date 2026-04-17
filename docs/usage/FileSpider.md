@@ -3,9 +3,10 @@
 FileSpider 是一款分布式文件下载爬虫，专用于批量下载文件/图片的场景。
 
 核心特征：
-- **一对多**: 一个任务包含多个待下载文件的 URL 列表，框架自动遍历生成下载请求
+- **一对多**: 一个任务包含多个待下载文件，由用户在 `start_requests` 中 yield 多个下载请求
+- **请求灵活**: 通过 `download_request` 辅助方法构造请求，可自由设置 headers/method/data/proxies/render 等
 - **进度追踪**: 框架自动追踪每个任务的下载进度（成功数/失败数/跳过数/去重数/总数）
-- **结果有序**: 下载结果列表与原始 URL 列表严格位置对应
+- **结果有序**: 下载结果列表与 `start_requests` 中 yield 的下载请求顺序严格对应
 - **灵活存储**: 默认保存到本地磁盘，可重写为上传云存储（OSS/S3 等），不落盘
 - **文件去重**: 任务内相同 URL 自动去重；可选跨任务去重（Redis / MySQL / 自定义）
 - **HTTP 校验**: 默认对 4xx/5xx 响应触发重试，用户可重写 `validate` 自定义校验
@@ -22,7 +23,8 @@ CREATE TABLE `file_task` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `file_urls` text COMMENT '待下载文件URL列表，JSON数组格式',
   `state` int(11) DEFAULT 0 COMMENT '任务状态: 0待做 2下载中 1完成 -1失败',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_state` (`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
@@ -31,14 +33,25 @@ CREATE TABLE `file_task` (
 - `file_urls`: 存放待下载文件 URL 的 JSON 数组，字段名可自定义
 - `state`: 任务状态字段，字段名可通过 `task_state` 参数配置。0=待做，2=已下发（框架自动设置），1=完成，-1=失败（由用户代码设置）
 
+索引建议：
+- `state` 是调度核心字段，框架会按 `check_task_interval`（默认 5 秒）轮询 `where state=0/2`；任务表行数较多时，建议加单列索引 `KEY idx_state (state)`，避免反复全表扫描。
+- 如果使用了 `task_condition` 按业务字段筛选任务（例如 `biz_type='image' and priority>=10`），建议改建复合索引 `KEY idx_state_biz (state, biz_type, priority)`，将 `state` 放在最左。
+- 如果配置了非主键的 `task_order_by`，可把排序字段放到复合索引尾部以避免 filesort。
+
 ## 2. 用户需实现的方法
 
 ### 必须实现
 
 | 方法 | 说明 |
 |------|------|
-| `get_download_urls(task)` | 从 task 中提取文件 URL 列表，返回 `List[str]` |
+| `start_requests(task)` | yield 该任务的所有下载请求，必须使用 `self.download_request(task, url, ...)` 构造 |
 | `on_task_all_done(task, result, success_count, fail_count, skipped_count, dup_count, total_count)` | 任务所有文件处理完毕的回调，在此 yield Item 或 update_task_batch 更新状态 |
+
+### 框架提供的辅助方法
+
+| 方法 | 说明 |
+|------|------|
+| `download_request(task, url, file_path=None, **kwargs)` | 构造下载请求，自动注入框架元数据（task_id、file_index、run_id、callback）。`**kwargs` 透传到 `Request`，可设置 headers/method/data/proxies/render/timeout 等。`file_path` 不传则在派发时调用 `get_file_path` 生成 |
 
 ### 可选重写
 
@@ -53,17 +66,30 @@ CREATE TABLE `file_task` (
 ### 方法分层
 
 ```
-save_file (框架层，不应重写)
-  ├── process_file (用户层，按需重写)
-  │     ├── 默认: 保存到本地磁盘，返回本地路径
-  │     └── 重写: 上传云存储，返回云存储 URL
-  ├── Redis 进度追踪 (自动，幂等计数)
-  ├── on_file_downloaded 回调
-  └── 检查是否所有文件完成
-        └── on_task_all_done (用户实现)
-              ├── yield Item → 写入结果表
-              └── yield update_task_batch → 更新任务状态
+start_requests (用户实现)
+  └── yield self.download_request(task, url, **kwargs)  # 一个任务的所有下载请求都需在此 yield
+
+distribute_task (框架层，按 yield 顺序分配 file_index、URL 去重、文件缓存命中、写 Redis 进度)
+  └── save_file (框架层，不应重写)
+        ├── process_file (用户层，按需重写)
+        │     ├── 默认: 保存到本地磁盘，返回本地路径
+        │     └── 重写: 上传云存储，返回云存储 URL
+        ├── Redis 进度追踪 (自动，幂等计数)
+        ├── on_file_downloaded 回调
+        └── 检查是否所有文件完成
+              └── on_task_all_done (用户实现)
+                    ├── yield Item → 写入结果表
+                    └── yield update_task_batch → 更新任务状态
 ```
+
+### 重要约束
+
+- **下载请求必须从 `start_requests(task)` 直接 yield**：进度追踪需要在派发前知道下载请求总数，
+  因此不支持在中间回调（如先抓列表页再 yield 下载请求）中产出下载请求。如有此类需求，
+  需先用普通 Spider 解析出 URL 列表落入任务表，再交给 FileSpider 下载。
+- **必须使用 `self.download_request(task, url, ...)`**：直接 `yield Request(url)` 不会被识别为下载请求，
+  框架不会做进度追踪和回调处理。
+- 在 `start_requests` 中允许同时 yield `Item` / `update_task_batch` 等非下载产物，框架会按原有规则分发。
 
 ### `process_file` 约束
 
@@ -81,7 +107,7 @@ def on_task_all_done(self, task, result, success_count, fail_count, skipped_coun
     """
     task: PerfectDict - 任务对象，包含 task_keys 指定的字段，可通过 task.id 获取任务 ID
     result: List[str|None]
-    - 与 get_download_urls 返回的列表严格位置对应
+    - 与 start_requests 中 yield 的下载请求顺序严格对应
     - 成功: 文件存储位置（本地路径或云存储 URL）
     - 失败/跳过: None
     - 任务内重复URL: 继承首次出现的结果
@@ -93,6 +119,31 @@ def on_task_all_done(self, task, result, success_count, fail_count, skipped_coun
     total_count: 总数（success + fail + skipped + dup = total）
     """
 ```
+
+#### 重复 URL 与计数器关系
+
+`result` 列表的长度严格等于 `start_requests` yield 的下载请求数（即 `total_count`），**重复 URL 不会被压缩，仍然占一个位置**，其值继承首次出现位置的最终结果。计数器满足不变式：
+
+```
+total = success + fail + skipped + dup
+```
+
+| 计数器 | 含义 | 是否包含重复位置 |
+|--------|------|------|
+| `success_count` | 下载成功 + 跨任务去重缓存命中 | 否 |
+| `fail_count` | 下载失败（重试耗尽） | 否 |
+| `skipped_count` | 无效 URL、`get_file_path` 异常等被跳过 | 否 |
+| `dup_count` | **任务内**重复 URL 的"额外位置"数（首次出现那个不计入 dup） | — |
+
+举例：`start_requests` 顺序 yield 4 个下载请求 `[A, B, B, C]`（index=2 是任务内重复）。
+
+| 场景 | result | 计数器 |
+|------|--------|--------|
+| 全部下载成功 | `["url_A", "url_B", "url_B", "url_C"]` | total=4, success=3, fail=0, skipped=0, dup=1 |
+| B 下载失败 | `["url_A", None, None, "url_C"]` | total=4, success=2, fail=1, skipped=0, dup=1 |
+| B 命中跨任务去重缓存 | `["url_A", "cached_B", "cached_B", "url_C"]` | total=4, success=3（含1个cached）, fail=0, skipped=0, dup=1 |
+
+注意：跨任务去重缓存命中（`file_dedup`）属于 `success`，**不属于 `dup`**；`dup` 仅用于同一任务内同 URL 重复出现的情况。
 
 ### `on_task_all_done` 设计约定与实现建议
 
@@ -213,8 +264,9 @@ import feapder
 
 
 class LocalFileSpider(feapder.FileSpider):
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
     def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
         # fail_count == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
@@ -236,7 +288,8 @@ if __name__ == "__main__":
 
 ### 场景二：上传云存储
 
-重写 `process_file` 实现直接上传云存储：
+重写 `process_file` 实现直接上传云存储。可以通过 `download_request` 的 `file_path=` 参数显式指定存储 key，
+省去 `get_file_path` 重写：
 
 ```python
 import json
@@ -248,16 +301,13 @@ from urllib.parse import urlparse, unquote
 class OssFileSpider(feapder.FileSpider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # 初始化云存储客户端
         self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
-
-    def get_file_path(self, task, url, index):
-        """返回 OSS 存储 key（不是本地路径）"""
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def start_requests(self, task):
+        for index, url in enumerate(json.loads(task.file_urls)):
+            filename = os.path.basename(unquote(urlparse(url).path))
+            oss_key = f"files/{task.id}/{index}_{filename}"
+            yield self.download_request(task, url, file_path=oss_key)
 
     def process_file(self, task_id, url, file_path, response):
         """上传 OSS，返回云存储 URL"""
@@ -303,19 +353,18 @@ class OssResultSpider(feapder.FileSpider):
         super().__init__(*args, **kwargs)
         self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
-
-    def get_file_path(self, task, url, index):
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def start_requests(self, task):
+        for index, url in enumerate(json.loads(task.file_urls)):
+            filename = os.path.basename(unquote(urlparse(url).path))
+            oss_key = f"files/{task.id}/{index}_{filename}"
+            yield self.download_request(task, url, file_path=oss_key)
 
     def process_file(self, task_id, url, file_path, response):
         self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
     def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        # result 与 get_download_urls 返回的列表严格位置对应，下载失败的用 None 占位
+        # result 与 start_requests 中 yield 的下载请求顺序严格位置对应，下载失败的用 None 占位
         item = FileResultItem()
         item.task_id = task.id
         item.result_urls = result
@@ -337,8 +386,9 @@ import feapder
 
 
 class DedupFileSpider(feapder.FileSpider):
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
     def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
         yield self.update_task_batch(task.id, 1 if fail_count == 0 and success_count > 0 else -1)
@@ -353,6 +403,43 @@ if __name__ == "__main__":
         file_dedup="redis",  # "redis" / "mysql" / FileDedup 实例
     )
     spider.start()
+```
+
+### 场景五：自定义请求参数
+
+`download_request` 透传所有 `Request` 参数，可按文件维度自由设置请求行为：
+
+```python
+import json
+import feapder
+
+
+class CustomRequestSpider(feapder.FileSpider):
+    def start_requests(self, task):
+        common_headers = {"Referer": "https://example.com/", "User-Agent": "MyBot/1.0"}
+        for url in json.loads(task.file_urls):
+            yield self.download_request(
+                task,
+                url,
+                headers=common_headers,
+                proxies={"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"},
+                timeout=30,
+                render=False,
+            )
+
+    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+        yield self.update_task_batch(task.id, 1 if fail_count == 0 and success_count > 0 else -1)
+```
+
+也可以根据 URL 不同走不同的下载策略，例如部分文件需要鉴权头：
+
+```python
+def start_requests(self, task):
+    for url in json.loads(task.file_urls):
+        if "private" in url:
+            yield self.download_request(task, url, headers={"Authorization": "Bearer xxx"})
+        else:
+            yield self.download_request(task, url)
 ```
 
 ## 5. 文件去重

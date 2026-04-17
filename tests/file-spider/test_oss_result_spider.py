@@ -55,19 +55,18 @@ class OssResultSpider(feapder.FileSpider):
         super().__init__(*args, **kwargs)
         # self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
-
-    def get_file_path(self, task, url, index):
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def start_requests(self, task):
+        for index, url in enumerate(json.loads(task.file_urls)):
+            filename = os.path.basename(unquote(urlparse(url).path))
+            oss_key = f"files/{task.id}/{index}_{filename}"
+            yield self.download_request(task, url, file_path=oss_key)
 
     def process_file(self, task_id, url, file_path, response):
         # self.oss_client.put_object(file_path, response.content)
         return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
 
     def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        # result 与 get_download_urls 返回的列表严格位置对应
+        # result 与 start_requests 中 yield 的下载请求顺序严格位置对应
         # 例: ["https://oss.com/a.jpg", "https://oss.com/b.jpg", None, "https://oss.com/d.jpg"]
         log.info(
             f"任务{task.id} 完成 成功={success_count} 失败={fail_count} "

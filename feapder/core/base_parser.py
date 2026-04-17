@@ -204,13 +204,43 @@ class FileParser(TaskParser):
         )
         self._save_dir = save_dir
 
-    def get_download_urls(self, task):
+    def start_requests(self, task):
         """
-        从 task 中获取需要下载的文件 URL 列表，用户必须实现
-        @param task: 任务信息
-        @return: List[str] - URL 列表
+        用户必须实现：yield 该任务的所有下载请求
+
+        必须使用 self.download_request(task, url, ...) 构造下载请求，框架据此完成进度追踪。
+        允许在同一方法内混合 yield 普通 Item / update_task_batch 等非下载产物。
+
+        约束:
+        - 一个任务的全部下载请求必须直接从此方法 yield，不要在中间回调里再产出，
+          否则进度统计无法获得 total。
+
+        @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
         """
-        raise NotImplementedError("必须实现 get_download_urls 方法")
+        raise NotImplementedError("必须实现 start_requests 方法")
+
+    def download_request(self, task, url, file_path=None, **kwargs):
+        """
+        构造下载请求的辅助方法。
+
+        @param task: 任务对象（必须传入，框架据此追踪进度）
+        @param url: 文件 URL
+        @param file_path: 可选，文件保存路径/存储标识；不传则在派发时调用 get_file_path 生成
+        @param kwargs: 透传到 Request 的其他参数（headers/method/data/proxies/render/timeout 等）
+        @return: Request - 标记为下载请求的 Request 对象
+        """
+        save_file = getattr(self, "save_file", None)
+        if "callback" in kwargs and save_file is not None and kwargs["callback"] is not save_file:
+            log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
+        if save_file is not None:
+            kwargs["callback"] = save_file
+        return Request(
+            url,
+            task=task,
+            file_path=file_path,
+            is_file_download=True,
+            **kwargs,
+        )
 
     def get_file_path(self, task, url, index):
         """
@@ -219,7 +249,7 @@ class FileParser(TaskParser):
         云存储场景: 返回存储标识/key，如 bucket/prefix/123/0_image.jpg
         @param task: 任务信息
         @param url: 文件 URL
-        @param index: 文件在 URL 列表中的索引，默认实现用于避免同名文件覆盖
+        @param index: 文件在下载请求序列中的索引（按 start_requests yield 顺序），默认实现用于避免同名文件覆盖
         @return: str - 文件路径或存储标识
         """
         parsed = urlparse(url)
@@ -271,8 +301,8 @@ class FileParser(TaskParser):
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
         @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
-        @param result: List[str|None] - 每个文件的处理结果，
-            顺序与 get_download_urls 返回的列表一致。
+        @param         result: List[str|None] - 每个文件的处理结果，
+            顺序与 start_requests 中 yield 的下载请求一致。
             成功为文件存储位置（本地路径或云存储 URL），失败为 None。
             任务内重复URL的结果继承首次出现的结果
         @param success_count: 成功数（含去重缓存命中）

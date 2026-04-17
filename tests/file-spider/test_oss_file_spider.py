@@ -30,13 +30,11 @@ class OssFileSpider(feapder.FileSpider):
         # 初始化云存储客户端
         # self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
-
-    def get_file_path(self, task, url, index):
-        """返回 OSS 存储 key（不是本地路径）"""
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def start_requests(self, task):
+        for index, url in enumerate(json.loads(task.file_urls)):
+            filename = os.path.basename(unquote(urlparse(url).path))
+            oss_key = f"files/{task.id}/{index}_{filename}"
+            yield self.download_request(task, url, file_path=oss_key)
 
     def process_file(self, task_id, url, file_path, response):
         """上传到 OSS，返回云存储 URL"""
