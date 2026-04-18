@@ -169,7 +169,7 @@ class MysqlDB:
         return len(self.connect_pool._idle_cache)
 
     @auto_retry
-    def find(self, sql, limit=0, to_json=False, conver_col=True):
+    def find(self, sql, limit=0, to_json=False, conver_col=True, params=None):
         """
         @summary:
         无数据： 返回()
@@ -180,12 +180,16 @@ class MysqlDB:
         @param limit:
         @param to_json 是否将查询结果转为json
         @param conver_col 是否处理查询结果，如date类型转字符串，json字符串转成json。仅当to_json=True时生效
+        @param params: 参数化查询的参数，None 表示不传参；传入时由 pymysql 进行转义，避免 SQL 注入
         ---------
         @result:
         """
         conn, cursor = self.get_connection()
 
-        cursor.execute(sql)
+        if params is None:
+            cursor.execute(sql)
+        else:
+            cursor.execute(sql, params)
 
         if limit == 1:
             result = cursor.fetchone()  # 全部查出来，截取 不推荐使用
@@ -381,11 +385,12 @@ class MysqlDB:
 
         return affect_count
 
-    def execute(self, sql) -> int:
+    def execute(self, sql, params=None) -> int:
         """
 
         Args:
             sql:
+            params: 参数化查询的参数，None 表示不传参；传入时由 pymysql 进行转义，避免 SQL 注入
 
         Returns: 影响行数
         """
@@ -393,7 +398,10 @@ class MysqlDB:
         conn, cursor = None, None
         try:
             conn, cursor = self.get_connection()
-            affect_count = cursor.execute(sql)
+            if params is None:
+                affect_count = cursor.execute(sql)
+            else:
+                affect_count = cursor.execute(sql, params)
             conn.commit()
         except Exception as e:
             log.error(

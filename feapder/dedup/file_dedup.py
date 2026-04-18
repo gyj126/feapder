@@ -111,19 +111,19 @@ class MysqlFileDedup(FileDedup):
         self.__class__._table_ensured.add(self._table)
 
     @staticmethod
-    def _hash_url(url):
+    def hash_url(url):
         return hashlib.md5(url.encode()).hexdigest()
 
     def get(self, url):
-        url_hash = self._hash_url(url)
+        url_hash = self.hash_url(url)
         sql = f"SELECT result_url FROM `{self._table}` WHERE `url_hash` = %s LIMIT 1"
-        result = self._mysqldb.find(sql, (url_hash,))
-        return result[0][0] if result else None
+        result = self._mysqldb.find(sql, limit=1, params=(url_hash,))
+        return result[0] if result else None
 
     def set(self, url, result_url):
-        url_hash = self._hash_url(url)
+        url_hash = self.hash_url(url)
         sql = (
             f"INSERT INTO `{self._table}` (`url`, `url_hash`, `result_url`) VALUES (%s, %s, %s) "
             f"ON DUPLICATE KEY UPDATE `result_url` = VALUES(`result_url`)"
         )
-        self._mysqldb.execute(sql, (url, url_hash, result_url))
+        self._mysqldb.execute(sql, params=(url, url_hash, result_url))
