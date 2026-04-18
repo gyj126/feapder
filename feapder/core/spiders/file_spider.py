@@ -44,7 +44,7 @@ class FileSpider(TaskSpider):
         redis_key,
         task_table,
         task_keys,
-        save_dir="./downloads",
+        save_dir=None,
         file_dedup=None,
         file_dedup_expire=None,
         task_table_type="mysql",
@@ -71,7 +71,7 @@ class FileSpider(TaskSpider):
         @param redis_key: 任务等数据存放在 redis 中的 key 前缀
         @param task_table: mysql 中的任务表
         @param task_keys: 需要获取的任务字段 列表
-        @param save_dir: 文件保存根目录，默认 ./downloads
+        @param save_dir: 文件保存根目录；不传时从 setting.FILE_SAVE_DIR 读取（默认 "./downloads"），传入则覆盖配置
         @param file_dedup: 文件去重策略。
             None: 不去重（默认）
             "redis": 使用 Redis Hash 去重
@@ -120,7 +120,7 @@ class FileSpider(TaskSpider):
             **kwargs,
         )
 
-        self._save_dir = save_dir
+        self._save_dir = save_dir if save_dir is not None else setting.FILE_SAVE_DIR
 
         if file_dedup == "redis":
             dedup_table = setting.TAB_FILE_DEDUP.format(redis_key=self._redis_key)
@@ -162,15 +162,18 @@ class FileSpider(TaskSpider):
         """
         raise NotImplementedError("必须实现 start_requests 方法")
 
-    def download_request(self, task, url, file_path=None, **kwargs):
+    def download_request(self, task, url, **kwargs):
         """
         构造下载请求的辅助方法。
 
         @param task: 任务对象（必须传入，框架据此追踪进度）
         @param url: 文件 URL
-        @param file_path: 可选，文件保存路径/存储标识；不传则在派发时调用 get_file_path 生成
         @param kwargs: 透传到 Request 的其他参数（headers/method/data/proxies/render/timeout 等）
         @return: Request - 标记为下载请求的 Request 对象
+
+        说明:
+        文件保存路径/存储标识统一由 file_path(task, url, index) 决定，
+        如需自定义命名规则或上传到云存储，请重写 file_path。
         """
         if "callback" in kwargs and kwargs["callback"] is not self.save_file:
             log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
@@ -178,16 +181,22 @@ class FileSpider(TaskSpider):
         return Request(
             url,
             task=task,
-            file_path=file_path,
             is_file_download=True,
             **kwargs,
         )
 
-    def get_file_path(self, task, url, index):
+    def file_path(self, task, url, index):
         """
-        返回文件保存路径/标识，用户可重写
+        返回文件最终存储位置/标识，用户可重写
         本地场景: 返回本地文件路径
         云存储场景: 返回存储标识/key
+
+        该返回值是文件下载链路上的"权威路径"，会被同步用于：
+        - 写入 result 列表（on_task_all_done 收到的 result 元素）
+        - 写入 file_dedup 缓存（跨任务去重命中时直接复用）
+        - 作为 process_file 的 file_path 入参
+        - 作为 on_file_downloaded 的 file_path 入参
+
         @param task: 任务信息
         @param url: 文件 URL
         @param index: 文件在下载请求序列中的索引（按 start_requests yield 顺序），默认实现用于避免同名文件覆盖
@@ -202,24 +211,29 @@ class FileSpider(TaskSpider):
 
     def process_file(self, task_id, url, file_path, response):
         """
-        处理下载的文件内容，返回文件最终存储位置。用户按需重写
-        默认实现: 流式保存到本地磁盘，返回本地路径
-        云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
+        将下载内容落地到 file_path 指定位置。用户按需重写
+        默认实现: 流式保存到本地磁盘
+        云存储场景: 重写此方法上传到 OSS/S3 等
+
         注意:
         - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
-        - 必须返回非空字符串，返回空值会触发重试直至失败
+        - 不再要求返回路径，路径以 file_path() 的返回值为准
+
         @param task_id: 任务 ID
         @param url: 文件原始 URL
-        @param file_path: get_file_path 返回的路径/标识
+        @param file_path: file_path() 返回的路径/标识
         @param response: 下载响应
-        @return: str - 文件最终存储位置（不可为空）
+        @return:
+            True / None: 处理成功
+            False: 显式失败（计入 fail，不再重试）
+            抛异常: 触发框架重试
         """
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        return file_path
+        return None
 
     def validate(self, request, response):
         """文件下载默认校验: 4xx/5xx响应抛异常触发重试，3xx由requests自动跟随。用户可重写"""
@@ -233,7 +247,7 @@ class FileSpider(TaskSpider):
         单个文件下载成功的回调，用户可重写
         @param task_id: 任务 ID
         @param url: 文件原始 URL
-        @param file_path: 文件存储位置
+        @param file_path: 文件存储位置（即 file_path() 的返回值）
         """
         pass
 
@@ -253,11 +267,11 @@ class FileSpider(TaskSpider):
         @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
         @param result: List[str|None] - 每个文件的处理结果，
             顺序与 start_requests 中 yield 的下载请求一致。
-            成功为文件存储位置，失败为 None。
+            成功为 file_path() 的返回值，失败为 None。
             任务内重复URL的结果继承首次出现的结果
         @param success_count: 成功数（含去重缓存命中）
-        @param fail_count: 下载失败数（重试耗尽）
-        @param skipped_count: 跳过数（无效URL、get_file_path异常等）
+        @param fail_count: 下载失败数（重试耗尽 + process_file 显式返回 False）
+        @param skipped_count: 跳过数（无效URL、file_path异常等）
         @param dup_count: 任务内重复URL数
         @param total_count: 总数（success + fail + skipped + dup = total）
         """
@@ -438,15 +452,13 @@ return {0, total, success, fail, skipped, dup}
                         log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
                     continue
 
-            file_path = getattr(request, "file_path", None)
-            if not file_path:
-                try:
-                    file_path = self.get_file_path(task, url, index)
-                except Exception as e:
-                    result_mapping[str(index)] = ""
-                    skipped_count += 1
-                    log.error(f"任务{task_id} get_file_path异常 url={url} error={e}")
-                    continue
+            try:
+                file_path = self.file_path(task, url, index)
+            except Exception as e:
+                result_mapping[str(index)] = ""
+                skipped_count += 1
+                log.error(f"任务{task_id} file_path异常 url={url} error={e}")
+                continue
 
             request.task_id = task_id
             request.file_index = index
@@ -541,6 +553,11 @@ return {0, total, success, fail, skipped, dup}
     def save_file(self, request, response):
         """
         框架内部回调，处理文件保存和进度追踪。用户不应重写此方法。
+
+        process_file 返回值语义：
+        - True / None: 成功，写入 result_key（值为 file_path）和 file_dedup 缓存
+        - False: 显式失败，计入 fail，调 on_file_failed，不再重试
+        - 抛异常: 触发框架重试
         """
         task_id = request.task_id
         file_index = request.file_index
@@ -548,29 +565,57 @@ return {0, total, success, fail, skipped, dup}
         file_path = request.file_path
         run_id = getattr(request, "run_id", "")
 
-        try:
-            result_url = self.process_file(task_id, url, file_path, response)
-        except Exception as e:
-            log.error(f"任务{task_id} process_file异常 url={url} error={e}")
-            raise
-
-        if not result_url:
-            raise Exception(f"process_file返回空值 url={url}, 请检查实现是否正确返回了文件存储位置")
-
-        if self._file_dedup and result_url:
-            try:
-                self._file_dedup.set(url, result_url)
-            except Exception as e:
-                log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
-
         progress_key = setting.TAB_FILE_PROGRESS.format(
             redis_key=self._redis_key, task_id=task_id
         )
         result_key = setting.TAB_FILE_RESULT.format(
             redis_key=self._redis_key, task_id=task_id
         )
+
+        try:
+            ok = self.process_file(task_id, url, file_path, response)
+        except Exception as e:
+            log.error(f"任务{task_id} process_file异常 url={url} error={e}")
+            raise
+
+        if ok is False:
+            status, total, success, fail, skipped, dup = self.record_and_check_done(
+                progress_key, result_key, "fail", str(file_index), "", run_id,
+            )
+            if status == -1:
+                log.debug(f"任务{task_id} 过期回调已丢弃 url={url}")
+                return
+
+            log.error(f"任务{task_id} 文件处理显式失败 [{success + fail + skipped + dup}/{total}] url={url}")
+
+            try:
+                self.on_file_failed(task_id, url, Exception("process_file返回False"))
+            except Exception as e_cb:
+                log.error(f"任务{task_id} on_file_failed回调异常 url={url} error={e_cb}")
+
+            if status == 1:
+                task = request.task
+                try:
+                    result = self._assemble_results(task_id, total)
+                    for item in self.on_task_all_done(
+                        task, result, success, fail, skipped, dup, total
+                    ) or []:
+                        yield item
+                except Exception as e:
+                    log.error(f"任务{task_id} on_task_all_done异常 error={e}")
+                    log.warning(f"任务{task_id} 状态未更新, 请检查on_task_all_done实现")
+                finally:
+                    yield lambda: self._cleanup_task_redis(task_id)
+            return
+
+        if self._file_dedup:
+            try:
+                self._file_dedup.set(url, file_path)
+            except Exception as e:
+                log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
+
         status, total, success, fail, skipped, dup = self.record_and_check_done(
-            progress_key, result_key, "success", str(file_index), result_url or "", run_id,
+            progress_key, result_key, "success", str(file_index), file_path, run_id,
         )
 
         if status == -1:
@@ -580,7 +625,7 @@ return {0, total, success, fail, skipped, dup}
         log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped + dup}/{total}] url={url}")
 
         try:
-            self.on_file_downloaded(task_id, url, result_url)
+            self.on_file_downloaded(task_id, url, file_path)
         except Exception as e:
             log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
 

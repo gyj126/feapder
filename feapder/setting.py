@@ -19,6 +19,8 @@ TAB_FILE_RESULT = "{redis_key}:h_file_result:{task_id}"
 TAB_FILE_DUP = "{redis_key}:h_file_dup:{task_id}"
 # 文件爬虫 - 去重缓存
 TAB_FILE_DEDUP = "{redis_key}:h_file_dedup"
+# 文件爬虫 - 默认下载根目录（可被 FileSpider 构造参数 save_dir 覆盖）
+FILE_SAVE_DIR = os.getenv("FILE_SAVE_DIR", "./downloads")
 # 用户池
 TAB_USER_POOL = "{redis_key}:h_{user_type}_pool"
 

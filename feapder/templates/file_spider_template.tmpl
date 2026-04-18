@@ -45,7 +45,8 @@ if __name__ == "__main__":
         task_table="",  # mysql中的任务表
         task_keys=["id", "file_urls"],  # 需要获取任务表里的字段名，可添加多个
         task_state="state",  # mysql中任务状态字段
-        save_dir="./downloads",  # 文件保存根目录
+        # save_dir 不传时使用 setting.FILE_SAVE_DIR（默认 ./downloads），显式传入将覆盖
+        # save_dir="./downloads",
         # file_dedup="redis",  # 跨任务去重策略: None / "redis" / "mysql"
     )
 
