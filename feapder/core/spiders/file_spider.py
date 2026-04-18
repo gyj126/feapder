@@ -251,7 +251,9 @@ class FileSpider(TaskSpider):
             抛异常: 触发框架重试
         """
         file_path = request.file_path
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        dirname = os.path.dirname(file_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -636,12 +638,6 @@ return {0, total, success, fail, skipped, dup}
                     yield lambda: self._cleanup_task_redis(task_id)
             return
 
-        if self._file_dedup:
-            try:
-                self._file_dedup.set(url, file_path)
-            except Exception as e:
-                log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
-
         status, total, success, fail, skipped, dup = self.record_and_check_done(
             progress_key, result_key, "success", str(file_index), file_path, run_id,
         )
@@ -649,6 +645,14 @@ return {0, total, success, fail, skipped, dup}
         if status == -1:
             log.debug(f"任务{task_id} 过期回调已丢弃 url={url}")
             return
+
+        # 仅在 run_id 校验通过、结果被正式接受时写入跨任务去重缓存，
+        # 避免过期回调（旧轮次请求晚到）污染 dedup
+        if self._file_dedup:
+            try:
+                self._file_dedup.set(url, file_path)
+            except Exception as e:
+                log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
 
         log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped + dup}/{total}] url={url}")
 

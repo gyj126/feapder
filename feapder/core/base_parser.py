@@ -286,7 +286,9 @@ class FileParser(TaskParser):
             抛异常: 触发框架重试
         """
         file_path = request.file_path
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        dirname = os.path.dirname(file_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:

@@ -108,6 +108,7 @@ save_file (框架层，不应重写)
 - **必须使用 `self.download_request(task, url, ...)`**：直接 `yield Request(url)` 不会被识别为下载请求，
   框架不会做进度追踪和回调处理。
 - 在 `start_requests` 中允许同时 yield `Item` / `update_task_batch` 等非下载产物，框架会按原有规则分发。
+- **单任务文件数建议在 1 万以内**：派发期需要把任务的所有下载请求一次性物化、做任务内 URL 去重并原子写入 Redis 进度状态。文件数量极大时（如数万、数十万）会出现明显的内存峰值与派发延迟，建议把超大批量拆成多个任务（例如按业务分片），每个任务承载若干百到若干千个文件。
 
 ### `process_file` 约束
 
@@ -362,6 +363,11 @@ class OssFileSpider(feapder.FileSpider):
 
     def process_file(self, request, response):
         """上传 OSS。返回 None=成功，返回 False=显式失败（不重试），抛异常=重试"""
+        # 注意: response.content 会把整个文件一次性读入内存，适合小文件（一般几 MB 内）。
+        # 单文件较大时建议改用 SDK 的流式/分片上传 API，例如：
+        #   阿里 OSS: bucket.put_object(key, response.raw)（流式）
+        #            或 bucket.init_multipart_upload(...) + upload_part(...)（分片）
+        #   AWS  S3: s3.upload_fileobj(response.raw, bucket, key)
         self.oss_client.put_object(request.file_path, response.content)
         # return None
 
@@ -417,6 +423,11 @@ class OssResultSpider(feapder.FileSpider):
         return f"files/{request.task.id}/{request.index}_{filename}"
 
     def process_file(self, request, response):
+        # 注意: response.content 会把整个文件一次性读入内存，适合小文件（一般几 MB 内）。
+        # 单文件较大时建议改用 SDK 的流式/分片上传 API，例如：
+        #   阿里 OSS: bucket.put_object(key, response.raw)（流式）
+        #            或 bucket.init_multipart_upload(...) + upload_part(...)（分片）
+        #   AWS  S3: s3.upload_fileobj(response.raw, bucket, key)
         self.oss_client.put_object(request.file_path, response.content)
         # return None
 
