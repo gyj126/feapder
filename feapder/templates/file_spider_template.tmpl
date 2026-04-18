@@ -30,10 +30,10 @@ class ${spider_name}(feapder.FileSpider):
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         # 任务状态需在此显式更新；实现需保证幂等，异常可能触发任务重试
-        # fail_count == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
-        if fail_count == 0 and success_count > 0:
+        # stats.fail == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
+        if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)

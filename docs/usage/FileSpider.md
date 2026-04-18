@@ -45,23 +45,38 @@ CREATE TABLE `file_task` (
 | 方法 | 说明 |
 |------|------|
 | `start_requests(task)` | yield 该任务的所有下载请求，必须使用 `self.download_request(task, url, ...)` 构造 |
-| `on_task_all_done(task, result, success_count, fail_count, skipped_count, dup_count, total_count)` | 任务所有文件处理完毕的回调，在此 yield Item 或 update_task_batch 更新状态 |
+| `on_task_all_done(task, result, stats)` | 任务所有文件处理完毕的回调，在此 yield Item 或 update_task_batch 更新状态 |
 
 ### 框架提供的辅助方法
 
 | 方法 | 说明 |
 |------|------|
-| `download_request(task, url, **kwargs)` | 构造下载请求，自动注入框架元数据（task_id、file_index、run_id、callback）。`**kwargs` 透传到 `Request`，可设置 headers/method/data/proxies/render/timeout 等。文件保存路径统一由 `file_path` 决定 |
+| `download_request(task, url, **kwargs)` | 构造下载请求，自动注入框架元数据。`**kwargs` 透传到 `Request`，可设置 headers/method/data/proxies/render/timeout 等。文件保存路径统一由 `file_path` 决定 |
 
 ### 可选重写
 
 | 方法 | 说明 | 默认行为 |
 |------|------|----------|
-| `file_path(task, url, index)` | 返回文件最终存储位置/标识；该返回值会作为 `result` 列表元素、`file_dedup` 缓存值、`on_file_downloaded` 第三参数 | `{save_dir}/{task_id}/{index}_{md5(filename)}{ext}` |
-| `process_file(task_id, url, file_path, response)` | 将下载内容落地到 `file_path`；返回 `True`/`None` 视为成功，返回 `False` 显式失败（不重试），抛异常触发重试 | 流式保存到本地磁盘，返回 `None` |
+| `file_path(request)` | 返回文件最终存储位置/标识；该返回值会作为 `result` 列表元素、`file_dedup` 缓存值、`request.file_path` | `{save_dir}/{task.id}/{index}_{md5(filename)}{ext}` |
+| `process_file(request, response)` | 将下载内容落地到 `request.file_path`；返回 `True`/`None` 视为成功，返回 `False` 显式失败（不重试），抛异常触发重试 | 流式保存到本地磁盘，返回 `None` |
 | `validate(request, response)` | 校验下载响应 | 4xx/5xx抛异常触发重试，3xx自动跟随 |
-| `on_file_downloaded(task_id, url, file_path)` | 单个文件下载成功回调（`file_path` 即 `file_path()` 返回值） | 无 |
-| `on_file_failed(task_id, url, error)` | 单个文件下载失败回调 | 无 |
+| `on_file_downloaded(request)` | 单个文件下载成功回调；用 `request.file_path` 取存储位置 | 无 |
+| `on_file_failed(request, error)` | 单个文件下载失败回调 | 无 |
+
+### request 上的属性（文件维度上下文）
+
+`file_path / validate / process_file / on_file_*` 这些"文件维度"钩子都接收同一个 `request` 对象，用户可访问：
+
+| 属性 | 含义 |
+|------|------|
+| `request.url` | 文件 URL |
+| `request.task` | PerfectDict 任务对象（可 `request.task.id` / `request.task.其他字段`） |
+| `request.task_id` | `task.id` 的便捷别名 |
+| `request.file_path` | `file_path()` 钩子返回值 |
+| `request.index` | 该文件在任务下载请求序列中的索引（按 `start_requests` yield 顺序） |
+| 任意自定义属性 | 用户在 `download_request(task, url, **kwargs)` 里挂的字段（如 `request.biz_type`） |
+
+> 例外：`file_path(request)` 钩子调用时 `request.file_path` 还不存在（它就是该钩子的返回值），其它属性都在。
 
 ### 方法分层
 
@@ -69,18 +84,18 @@ CREATE TABLE `file_task` (
 start_requests (用户实现)
   └── yield self.download_request(task, url, **kwargs)  # 一个任务的所有下载请求都需在此 yield
 
-distribute_task (框架层，按 yield 顺序分配 file_index、URL 去重、文件缓存命中、写 Redis 进度)
-  ├── file_path(task, url, index) (用户层，按需重写) → 决定权威存储位置
+distribute_task (框架层，按 yield 顺序分配 index、URL 去重、文件缓存命中、写 Redis 进度)
+  ├── file_path(request) (用户层，按需重写) → 决定权威存储位置
   └── 下发请求
 
 save_file (框架层，不应重写)
-  ├── process_file(task_id, url, file_path, response) (用户层，按需重写)
-  │     ├── return True/None: 成功 → 写 result/dedup → on_file_downloaded
-  │     ├── return False: 显式失败 → 计入 fail → on_file_failed
+  ├── process_file(request, response) (用户层，按需重写)
+  │     ├── return True/None: 成功 → 写 result/dedup → on_file_downloaded(request)
+  │     ├── return False: 显式失败 → 计入 fail → on_file_failed(request, error)
   │     └── raise: 触发重试
   ├── Redis 进度追踪 (自动，幂等计数)
   └── 检查是否所有文件完成
-        └── on_task_all_done (用户实现)
+        └── on_task_all_done(task, result, stats) (用户实现)
               ├── yield Item → 写入结果表
               └── yield update_task_batch → 更新任务状态
 ```
@@ -96,17 +111,17 @@ save_file (框架层，不应重写)
 
 ### `process_file` 约束
 
-`process_file` 是"落地动作"，**不再负责返回路径**——路径以 `file_path()` 的返回值为准。
+`process_file(request, response)` 是"落地动作"，**不返回路径**——路径以 `file_path()` 的返回值为准（即 `request.file_path`）。
 
 **返回值语义**:
 
 | 返回值 | 含义 |
 |--------|------|
-| `True` 或 `None` | 处理成功；框架写入 `result_key`、`file_dedup` 缓存（值均为 `file_path`），调用 `on_file_downloaded` |
-| `False` | 显式失败：**不再重试**，直接计入 `fail_count`，调用 `on_file_failed` |
+| `True` 或 `None` | 处理成功；框架写入 `result_key`、`file_dedup` 缓存（值均为 `request.file_path`），调用 `on_file_downloaded(request)` |
+| `False` | 显式失败：**不再重试**，直接计入 `stats.fail`，调用 `on_file_failed(request, error)` |
 | 抛异常 | 触发框架重试机制 |
 
-**幂等性要求**: 在下载失败重试时可能被多次调用（同一 URL、同一 `file_path`），实现需保证幂等：
+**幂等性要求**: 在下载失败重试时可能被多次调用（同一 URL、同一 `request.file_path`），实现需保证幂等：
 - 默认实现使用 `"wb"` 模式覆盖写入，天然幂等
 - 重写时避免使用追加模式（`"ab"`）
 - 云存储场景建议使用 `put_object` 等覆盖语义的 API
@@ -118,7 +133,7 @@ save_file (框架层，不应重写)
 ### `on_task_all_done` 参数说明
 
 ```python
-def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+def on_task_all_done(self, task, result, stats):
     """
     task: PerfectDict - 任务对象，包含 task_keys 指定的字段，可通过 task.id 获取任务 ID
     result: List[str|None]
@@ -127,17 +142,27 @@ def on_task_all_done(self, task, result, success_count, fail_count, skipped_coun
     - 失败/跳过: None
     - 任务内重复URL: 继承首次出现的结果
     例: ["downloads/1/0_a.jpg", "downloads/1/1_b.jpg", None, "downloads/1/3_d.jpg"]
-    success_count: 成功数（含去重缓存命中）
-    fail_count: 下载失败数（重试耗尽 + process_file 显式返回 False）
-    skipped_count: 跳过数（无效URL、file_path异常等）
-    dup_count: 任务内重复URL数
-    total_count: 总数（success + fail + skipped + dup = total）
+    stats: FileTaskStats - namedtuple
+    - stats.success: 成功数（含跨任务去重缓存命中）
+    - stats.fail:    失败数（重试耗尽 + process_file 显式返回 False）
+    - stats.skipped: 跳过数（无效URL、file_path异常等）
+    - stats.dup:     任务内重复URL数
+    - stats.total:   总数（success + fail + skipped + dup = total）
+    - 也支持元组解包: success, fail, skipped, dup, total = stats
     """
+```
+
+如需 type hint：
+
+```python
+from feapder import FileTaskStats
+
+def on_task_all_done(self, task, result: list, stats: FileTaskStats): ...
 ```
 
 #### 重复 URL 与计数器关系
 
-`result` 列表的长度严格等于 `start_requests` yield 的下载请求数（即 `total_count`），**重复 URL 不会被压缩，仍然占一个位置**，其值继承首次出现位置的最终结果。计数器满足不变式：
+`result` 列表的长度严格等于 `start_requests` yield 的下载请求数（即 `stats.total`），**重复 URL 不会被压缩，仍然占一个位置**，其值继承首次出现位置的最终结果。计数器满足不变式：
 
 ```
 total = success + fail + skipped + dup
@@ -145,10 +170,10 @@ total = success + fail + skipped + dup
 
 | 计数器 | 含义 | 是否包含重复位置 |
 |--------|------|------|
-| `success_count` | 下载成功 + 跨任务去重缓存命中 | 否 |
-| `fail_count` | 下载失败（重试耗尽 或 `process_file` 显式返回 `False`） | 否 |
-| `skipped_count` | 无效 URL、`file_path` 异常等被跳过 | 否 |
-| `dup_count` | **任务内**重复 URL 的"额外位置"数（首次出现那个不计入 dup） | — |
+| `stats.success` | 下载成功 + 跨任务去重缓存命中 | 否 |
+| `stats.fail` | 下载失败（重试耗尽 或 `process_file` 显式返回 `False`） | 否 |
+| `stats.skipped` | 无效 URL、`file_path` 异常等被跳过 | 否 |
+| `stats.dup` | **任务内**重复 URL 的"额外位置"数（首次出现那个不计入 dup） | — |
 
 举例：`start_requests` 顺序 yield 4 个下载请求 `[A, B, B, C]`（index=2 是任务内重复）。
 
@@ -190,11 +215,11 @@ from feapder.utils.log import log
 
 
 class MyFileSpider(feapder.FileSpider):
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         task_id = task.id
         log.info(
-            f"任务{task_id}完成 success={success_count} fail={fail_count} "
-            f"skipped={skipped_count} dup={dup_count} total={total_count}"
+            f"任务{task_id}完成 success={stats.success} fail={stats.fail} "
+            f"skipped={stats.skipped} dup={stats.dup} total={stats.total}"
         )
 
         # 1) 先写业务结果（示例：可按需 yield Item）
@@ -204,7 +229,7 @@ class MyFileSpider(feapder.FileSpider):
         # yield item
 
         # 2) 最后更新任务状态（设置目标值，天然幂等）
-        done_state = 1 if fail_count == 0 and success_count > 0 else -1
+        done_state = 1 if stats.fail == 0 and stats.success > 0 else -1
         yield self.update_task_batch(task_id, done_state)
 ```
 
@@ -291,9 +316,9 @@ class LocalFileSpider(feapder.FileSpider):
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        # fail_count == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
-        if fail_count == 0 and success_count > 0:
+    def on_task_all_done(self, task, result, stats):
+        # stats.fail == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
+        if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)
@@ -330,18 +355,18 @@ class OssFileSpider(feapder.FileSpider):
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
-    def file_path(self, task, url, index):
+    def file_path(self, request):
         """返回 OSS 存储 key（即 result 列表里要存的值）"""
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+        filename = os.path.basename(unquote(urlparse(request.url).path))
+        return f"files/{request.task.id}/{request.index}_{filename}"
 
-    def process_file(self, task_id, url, file_path, response):
+    def process_file(self, request, response):
         """上传 OSS。返回 None=成功，返回 False=显式失败（不重试），抛异常=重试"""
-        self.oss_client.put_object(file_path, response.content)
+        self.oss_client.put_object(request.file_path, response.content)
         # return None
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        if success_count > 0:
+    def on_task_all_done(self, task, result, stats):
+        if stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)
@@ -387,15 +412,15 @@ class OssResultSpider(feapder.FileSpider):
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
-    def file_path(self, task, url, index):
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def file_path(self, request):
+        filename = os.path.basename(unquote(urlparse(request.url).path))
+        return f"files/{request.task.id}/{request.index}_{filename}"
 
-    def process_file(self, task_id, url, file_path, response):
-        self.oss_client.put_object(file_path, response.content)
+    def process_file(self, request, response):
+        self.oss_client.put_object(request.file_path, response.content)
         # return None
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         # result 与 start_requests 中 yield 的下载请求顺序严格位置对应
         # 元素是 file_path() 返回的 OSS key，下载失败/跳过为 None
         # 入库时把 OSS key 拼成可访问 URL
@@ -407,7 +432,7 @@ class OssResultSpider(feapder.FileSpider):
         item.result_urls = result_urls
         yield item
 
-        if fail_count == 0 and success_count > 0:
+        if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)
@@ -427,8 +452,8 @@ class DedupFileSpider(feapder.FileSpider):
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        yield self.update_task_batch(task.id, 1 if fail_count == 0 and success_count > 0 else -1)
+    def on_task_all_done(self, task, result, stats):
+        yield self.update_task_batch(task.id, 1 if stats.fail == 0 and stats.success > 0 else -1)
 
 
 if __name__ == "__main__":
@@ -464,8 +489,8 @@ class CustomRequestSpider(feapder.FileSpider):
                 render=False,
             )
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        yield self.update_task_batch(task.id, 1 if fail_count == 0 and success_count > 0 else -1)
+    def on_task_all_done(self, task, result, stats):
+        yield self.update_task_batch(task.id, 1 if stats.fail == 0 and stats.success > 0 else -1)
 ```
 
 也可以根据 URL 不同走不同的下载策略，例如部分文件需要鉴权头：

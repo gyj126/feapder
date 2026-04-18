@@ -245,7 +245,7 @@ class FileParser(TaskParser):
             **kwargs,
         )
 
-    def file_path(self, task, url, index):
+    def file_path(self, request):
         """
         返回文件最终存储位置/标识，用户可重写
         本地场景: 返回本地文件路径，如 ./downloads/123/0_image.jpg
@@ -254,38 +254,38 @@ class FileParser(TaskParser):
         该返回值是文件下载链路上的"权威路径"，会被同步用于：
         - 写入 result 列表（on_task_all_done 收到的 result 元素）
         - 写入 file_dedup 缓存（跨任务去重命中时直接复用）
-        - 作为 process_file 的 file_path 入参
-        - 作为 on_file_downloaded 的 file_path 入参
+        - 写回 request.file_path，供 process_file/on_file_downloaded 使用
 
-        @param task: 任务信息
-        @param url: 文件 URL
-        @param index: 文件在下载请求序列中的索引（按 start_requests yield 顺序），默认实现用于避免同名文件覆盖
+        @param request: 当前下载请求；可访问 request.task / request.url / request.index /
+            request.task_id，以及用户在 download_request 里挂的任何业务字段。
+            注意: 该钩子调用时 request.file_path 还不存在（它就是本钩子的返回值）。
         @return: str - 文件路径或存储标识
         """
+        url = request.url
         parsed = urlparse(url)
         filename = os.path.basename(unquote(parsed.path)) or "unknown"
-        filename = f"{index}_{filename}"
-        return os.path.join(self._save_dir, str(task.id), filename)
+        filename = f"{request.index}_{filename}"
+        return os.path.join(self._save_dir, str(request.task.id), filename)
 
-    def process_file(self, task_id, url, file_path, response):
+    def process_file(self, request, response):
         """
-        将下载内容落地到 file_path 指定位置。用户按需重写
+        将下载内容落地到 request.file_path 指定位置。用户按需重写
         默认实现: 流式保存到本地磁盘
         云存储场景: 重写此方法上传到 OSS/S3 等
 
         注意:
         - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
-        - 不再要求返回路径，路径以 file_path() 的返回值为准
+        - 不返回路径，路径以 file_path() 的返回值为准（即 request.file_path）
 
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: file_path() 返回的路径/标识
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         @param response: 下载响应
         @return:
             True / None: 处理成功
             False: 显式失败（计入 fail，不再重试）
             抛异常: 触发框架重试
         """
+        file_path = request.file_path
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -293,38 +293,35 @@ class FileParser(TaskParser):
                     f.write(chunk)
         return None
 
-    def on_file_downloaded(self, task_id, url, file_path):
+    def on_file_downloaded(self, request):
         """
         单个文件下载成功的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: 文件存储位置（即 file_path() 的返回值）
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         """
         pass
 
-    def on_file_failed(self, task_id, url, error):
+    def on_file_failed(self, request, error):
         """
         单个文件下载失败的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param error: 异常信息
+        @param request: 当前下载请求
+        @param error: 异常对象
         """
         pass
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
         @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
-        @param         result: List[str|None] - 每个文件的处理结果，
+        @param result: List[str|None] - 每个文件的处理结果，
             顺序与 start_requests 中 yield 的下载请求一致。
             成功为 file_path() 的返回值，失败为 None。
             任务内重复URL的结果继承首次出现的结果
-        @param success_count: 成功数（含去重缓存命中）
-        @param fail_count: 下载失败数（重试耗尽 + process_file 显式返回 False）
-        @param skipped_count: 跳过数（无效URL、file_path异常等）
-        @param dup_count: 任务内重复URL数
-        @param total_count: 总数（success + fail + skipped + dup = total）
+        @param stats: FileTaskStats - 任务计数器
+            - stats.success / stats.fail / stats.skipped / stats.dup / stats.total
+            - 不变式: total == success + fail + skipped + dup
+            - 支持元组解包: success, fail, skipped, dup, total = stats
         """
         pass
 

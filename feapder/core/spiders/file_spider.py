@@ -10,6 +10,7 @@ import hashlib
 import os
 import re
 import warnings
+from collections import namedtuple
 from collections.abc import Iterable
 from urllib.parse import urlparse, unquote
 
@@ -25,6 +26,28 @@ from feapder.utils.log import log
 from feapder.utils.perfect_dict import PerfectDict
 
 CONSOLE_PIPELINE_PATH = "feapder.pipelines.console_pipeline.ConsolePipeline"
+
+
+FileTaskStats = namedtuple(
+    "FileTaskStats",
+    ["success", "fail", "skipped", "dup", "total"],
+    defaults=(0, 0, 0, 0, 0),
+)
+"""文件下载任务统计
+
+字段:
+    success: 成功数（含跨任务去重缓存命中）
+    fail:    失败数（重试耗尽 + process_file 显式返回 False）
+    skipped: 跳过数（无效 URL、file_path 异常等）
+    dup:     任务内重复 URL 数（不含首次出现）
+    total:   总数
+
+不变式: total == success + fail + skipped + dup
+
+支持元组解包与命名访问:
+    success, fail, skipped, dup, total = stats   # 解包
+    stats.success, stats.fail, ...               # 命名访问
+"""
 
 
 class FileSpider(TaskSpider):
@@ -185,7 +208,7 @@ class FileSpider(TaskSpider):
             **kwargs,
         )
 
-    def file_path(self, task, url, index):
+    def file_path(self, request):
         """
         返回文件最终存储位置/标识，用户可重写
         本地场景: 返回本地文件路径
@@ -194,40 +217,40 @@ class FileSpider(TaskSpider):
         该返回值是文件下载链路上的"权威路径"，会被同步用于：
         - 写入 result 列表（on_task_all_done 收到的 result 元素）
         - 写入 file_dedup 缓存（跨任务去重命中时直接复用）
-        - 作为 process_file 的 file_path 入参
-        - 作为 on_file_downloaded 的 file_path 入参
+        - 写回 request.file_path，供 process_file/on_file_downloaded 使用
 
-        @param task: 任务信息
-        @param url: 文件 URL
-        @param index: 文件在下载请求序列中的索引（按 start_requests yield 顺序），默认实现用于避免同名文件覆盖
-        @return: str
+        @param request: 当前下载请求；可访问 request.task / request.url / request.index /
+            request.task_id，以及用户在 download_request 里挂的任何业务字段。
+            注意: 该钩子调用时 request.file_path 还不存在（它就是本钩子的返回值）。
+        @return: str - 文件路径或存储标识
         """
+        url = request.url
         parsed = urlparse(url)
         raw_name = os.path.basename(unquote(parsed.path)) or "unknown"
         _, ext = os.path.splitext(raw_name)
         name_hash = hashlib.md5(raw_name.encode()).hexdigest()
-        filename = f"{index}_{name_hash}{ext}"
-        return os.path.join(self._save_dir, str(task.id), filename)
+        filename = f"{request.index}_{name_hash}{ext}"
+        return os.path.join(self._save_dir, str(request.task.id), filename)
 
-    def process_file(self, task_id, url, file_path, response):
+    def process_file(self, request, response):
         """
-        将下载内容落地到 file_path 指定位置。用户按需重写
+        将下载内容落地到 request.file_path 指定位置。用户按需重写
         默认实现: 流式保存到本地磁盘
         云存储场景: 重写此方法上传到 OSS/S3 等
 
         注意:
         - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
-        - 不再要求返回路径，路径以 file_path() 的返回值为准
+        - 不返回路径，路径以 file_path() 的返回值为准（即 request.file_path）
 
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: file_path() 返回的路径/标识
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         @param response: 下载响应
         @return:
             True / None: 处理成功
             False: 显式失败（计入 fail，不再重试）
             抛异常: 触发框架重试
         """
+        file_path = request.file_path
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -242,25 +265,23 @@ class FileSpider(TaskSpider):
                 f"文件下载HTTP {response.status_code} url={request.url}"
             )
 
-    def on_file_downloaded(self, task_id, url, file_path):
+    def on_file_downloaded(self, request):
         """
         单个文件下载成功的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: 文件存储位置（即 file_path() 的返回值）
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         """
         pass
 
-    def on_file_failed(self, task_id, url, error):
+    def on_file_failed(self, request, error):
         """
         单个文件下载失败的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param error: 异常信息
+        @param request: 当前下载请求
+        @param error: 异常对象
         """
         pass
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
@@ -269,11 +290,14 @@ class FileSpider(TaskSpider):
             顺序与 start_requests 中 yield 的下载请求一致。
             成功为 file_path() 的返回值，失败为 None。
             任务内重复URL的结果继承首次出现的结果
-        @param success_count: 成功数（含去重缓存命中）
-        @param fail_count: 下载失败数（重试耗尽 + process_file 显式返回 False）
-        @param skipped_count: 跳过数（无效URL、file_path异常等）
-        @param dup_count: 任务内重复URL数
-        @param total_count: 总数（success + fail + skipped + dup = total）
+        @param stats: FileTaskStats - 任务计数器
+            - stats.success: 成功数（含跨任务去重缓存命中）
+            - stats.fail:    失败数（重试耗尽 + process_file 显式返回 False）
+            - stats.skipped: 跳过数（无效 URL、file_path 异常等）
+            - stats.dup:     任务内重复 URL 数（不含首次出现）
+            - stats.total:   总数
+            - 不变式: total == success + fail + skipped + dup
+            - 支持元组解包: success, fail, skipped, dup, total = stats
         """
         pass
 
@@ -436,6 +460,12 @@ return {0, total, success, fail, skipped, dup}
                 continue
             seen_urls[url] = index
 
+            # 提前注入文件维度上下文，供 file_path 钩子及缓存命中回调使用
+            request.task = task
+            request.task_id = task_id
+            request.index = index
+            request.run_id = run_id
+
             if self._file_dedup:
                 try:
                     cached_result = self._file_dedup.get(url)
@@ -445,26 +475,22 @@ return {0, total, success, fail, skipped, dup}
                 if cached_result is not None:
                     result_mapping[str(index)] = cached_result
                     cached_count += 1
+                    request.file_path = cached_result
                     log.debug(f"任务{task_id} 文件去重命中 url={url}")
                     try:
-                        self.on_file_downloaded(task_id, url, cached_result)
+                        self.on_file_downloaded(request)
                     except Exception as e:
                         log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
                     continue
 
             try:
-                file_path = self.file_path(task, url, index)
+                request.file_path = self.file_path(request)
             except Exception as e:
                 result_mapping[str(index)] = ""
                 skipped_count += 1
                 log.error(f"任务{task_id} file_path异常 url={url} error={e}")
                 continue
 
-            request.task_id = task_id
-            request.file_index = index
-            request.file_path = file_path
-            request.task = task
-            request.run_id = run_id
             request.callback = self.save_file
             request.parser_name = request.parser_name or parser.name
             pending_requests.append(request)
@@ -505,9 +531,11 @@ return {0, total, success, fail, skipped, dup}
         if cached_count + skipped_count + dup_count >= total:
             try:
                 result = self._assemble_results(task_id, total)
-                done_iter = self.on_task_all_done(
-                    task, result, cached_count, 0, skipped_count, dup_count, total
+                stats = FileTaskStats(
+                    success=cached_count, fail=0,
+                    skipped=skipped_count, dup=dup_count, total=total,
                 )
+                done_iter = self.on_task_all_done(task, result, stats)
                 for done_item in done_iter or []:
                     self._dispatch_non_download(done_item)
             except Exception as e:
@@ -526,7 +554,8 @@ return {0, total, success, fail, skipped, dup}
             self._dispatch_non_download(non_download)
 
         try:
-            done_iter = self.on_task_all_done(task, [], 0, 0, 0, 0, 0)
+            stats = FileTaskStats()
+            done_iter = self.on_task_all_done(task, [], stats)
             for done_item in done_iter or []:
                 self._dispatch_non_download(done_item)
         except Exception as e:
@@ -560,7 +589,7 @@ return {0, total, success, fail, skipped, dup}
         - 抛异常: 触发框架重试
         """
         task_id = request.task_id
-        file_index = request.file_index
+        file_index = request.index
         url = request.url
         file_path = request.file_path
         run_id = getattr(request, "run_id", "")
@@ -573,7 +602,7 @@ return {0, total, success, fail, skipped, dup}
         )
 
         try:
-            ok = self.process_file(task_id, url, file_path, response)
+            ok = self.process_file(request, response)
         except Exception as e:
             log.error(f"任务{task_id} process_file异常 url={url} error={e}")
             raise
@@ -589,7 +618,7 @@ return {0, total, success, fail, skipped, dup}
             log.error(f"任务{task_id} 文件处理显式失败 [{success + fail + skipped + dup}/{total}] url={url}")
 
             try:
-                self.on_file_failed(task_id, url, Exception("process_file返回False"))
+                self.on_file_failed(request, Exception("process_file返回False"))
             except Exception as e_cb:
                 log.error(f"任务{task_id} on_file_failed回调异常 url={url} error={e_cb}")
 
@@ -597,9 +626,8 @@ return {0, total, success, fail, skipped, dup}
                 task = request.task
                 try:
                     result = self._assemble_results(task_id, total)
-                    for item in self.on_task_all_done(
-                        task, result, success, fail, skipped, dup, total
-                    ) or []:
+                    stats = FileTaskStats(success=success, fail=fail, skipped=skipped, dup=dup, total=total)
+                    for item in self.on_task_all_done(task, result, stats) or []:
                         yield item
                 except Exception as e:
                     log.error(f"任务{task_id} on_task_all_done异常 error={e}")
@@ -625,7 +653,7 @@ return {0, total, success, fail, skipped, dup}
         log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped + dup}/{total}] url={url}")
 
         try:
-            self.on_file_downloaded(task_id, url, file_path)
+            self.on_file_downloaded(request)
         except Exception as e:
             log.error(f"任务{task_id} on_file_downloaded回调异常 url={url} error={e}")
 
@@ -633,9 +661,8 @@ return {0, total, success, fail, skipped, dup}
             task = request.task
             try:
                 result = self._assemble_results(task_id, total)
-                for item in self.on_task_all_done(
-                    task, result, success, fail, skipped, dup, total
-                ) or []:
+                stats = FileTaskStats(success=success, fail=fail, skipped=skipped, dup=dup, total=total)
+                for item in self.on_task_all_done(task, result, stats) or []:
                     yield item
             except Exception as e:
                 log.error(f"任务{task_id} on_task_all_done异常 error={e}")
@@ -648,7 +675,7 @@ return {0, total, success, fail, skipped, dup}
         文件下载失败（重试耗尽）的处理。
         """
         task_id = getattr(request, "task_id", None)
-        file_index = getattr(request, "file_index", None)
+        file_index = getattr(request, "index", None)
 
         if task_id is None or file_index is None:
             yield request
@@ -673,7 +700,7 @@ return {0, total, success, fail, skipped, dup}
         log.error(f"任务{task_id} 文件下载失败 [{success + fail + skipped + dup}/{total}] url={request.url}")
 
         try:
-            self.on_file_failed(task_id, request.url, e)
+            self.on_file_failed(request, e)
         except Exception as e_cb:
             log.error(f"任务{task_id} on_file_failed回调异常 url={request.url} error={e_cb}")
 
@@ -681,9 +708,8 @@ return {0, total, success, fail, skipped, dup}
             task = request.task
             try:
                 result = self._assemble_results(task_id, total)
-                for item in self.on_task_all_done(
-                    task, result, success, fail, skipped, dup, total
-                ) or []:
+                stats = FileTaskStats(success=success, fail=fail, skipped=skipped, dup=dup, total=total)
+                for item in self.on_task_all_done(task, result, stats) or []:
                     yield item
             except Exception as e_done:
                 log.error(f"任务{task_id} on_task_all_done异常 error={e_done}")
