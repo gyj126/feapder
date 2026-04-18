@@ -39,7 +39,8 @@ def __init__(
           `state` int(11) DEFAULT NULL COMMENT '任务状态',
           `parser_name` varchar(255) DEFAULT NULL COMMENT '任务解析器的脚本类名',
           PRIMARY KEY (`id`),
-          UNIQUE KEY `nui` (`param`) USING BTREE
+          UNIQUE KEY `nui` (`param`) USING BTREE,
+          KEY `idx_state` (`state`)  -- 调度字段，框架会反复 where state=0/2，任务表较大时建议加索引
         ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 
     2、需有批次记录表 不存在自动创建

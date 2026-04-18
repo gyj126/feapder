@@ -10,6 +10,7 @@ Created on 2018-07-25 11:41:57
 import os
 from urllib.parse import urlparse, unquote
 
+import feapder.setting as setting
 import feapder.utils.tools as tools
 from feapder.db.mysqldb import MysqlDB
 from feapder.network.item import UpdateItem
@@ -198,88 +199,131 @@ class FileParser(TaskParser):
     ---------
     """
 
-    def __init__(self, task_table, task_state, mysqldb=None, save_dir="./downloads"):
+    def __init__(self, task_table, task_state, mysqldb=None, save_dir=None):
         super(FileParser, self).__init__(
             task_table=task_table, task_state=task_state, mysqldb=mysqldb
         )
-        self._save_dir = save_dir
+        self._save_dir = save_dir if save_dir is not None else setting.FILE_SAVE_DIR
 
-    def get_download_urls(self, task):
+    def start_requests(self, task):
         """
-        从 task 中获取需要下载的文件 URL 列表，用户必须实现
-        @param task: 任务信息
-        @return: List[str] - URL 列表
-        """
-        raise NotImplementedError("必须实现 get_download_urls 方法")
+        用户必须实现：yield 该任务的所有下载请求
 
-    def get_file_path(self, task, url, index):
+        必须使用 self.download_request(task, url, ...) 构造下载请求，框架据此完成进度追踪。
+        允许在同一方法内混合 yield 普通 Item / update_task_batch 等非下载产物。
+
+        约束:
+        - 一个任务的全部下载请求必须直接从此方法 yield，不要在中间回调里再产出，
+          否则进度统计无法获得 total。
+
+        @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
         """
-        返回文件保存路径/标识，用户可重写
+        raise NotImplementedError("必须实现 start_requests 方法")
+
+    def download_request(self, task, url, **kwargs):
+        """
+        构造下载请求的辅助方法。
+
+        @param task: 任务对象（必须传入，框架据此追踪进度）
+        @param url: 文件 URL
+        @param kwargs: 透传到 Request 的其他参数（headers/method/data/proxies/render/timeout 等）
+        @return: Request - 标记为下载请求的 Request 对象
+
+        说明:
+        文件保存路径/存储标识统一由 file_path(task, url, index) 决定，
+        如需自定义命名规则或上传到云存储，请重写 file_path。
+        """
+        save_file = getattr(self, "save_file", None)
+        if "callback" in kwargs and save_file is not None and kwargs["callback"] is not save_file:
+            log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
+        if save_file is not None:
+            kwargs["callback"] = save_file
+        return Request(
+            url,
+            task=task,
+            is_file_download=True,
+            **kwargs,
+        )
+
+    def file_path(self, request):
+        """
+        返回文件最终存储位置/标识，用户可重写
         本地场景: 返回本地文件路径，如 ./downloads/123/0_image.jpg
         云存储场景: 返回存储标识/key，如 bucket/prefix/123/0_image.jpg
-        @param task: 任务信息
-        @param url: 文件 URL
-        @param index: 文件在 URL 列表中的索引，默认实现用于避免同名文件覆盖
+
+        该返回值是文件下载链路上的"权威路径"，会被同步用于：
+        - 写入 result 列表（on_task_all_done 收到的 result 元素）
+        - 写入 file_dedup 缓存（跨任务去重命中时直接复用）
+        - 写回 request.file_path，供 process_file/on_file_downloaded 使用
+
+        @param request: 当前下载请求；可访问 request.task / request.url / request.index /
+            request.task_id，以及用户在 download_request 里挂的任何业务字段。
+            注意: 该钩子调用时 request.file_path 还不存在（它就是本钩子的返回值）。
         @return: str - 文件路径或存储标识
         """
+        url = request.url
         parsed = urlparse(url)
         filename = os.path.basename(unquote(parsed.path)) or "unknown"
-        filename = f"{index}_{filename}"
-        return os.path.join(self._save_dir, str(task.id), filename)
+        filename = f"{request.index}_{filename}"
+        return os.path.join(self._save_dir, str(request.task.id), filename)
 
-    def process_file(self, task_id, url, file_path, response):
+    def process_file(self, request, response):
         """
-        处理下载的文件内容，返回文件最终存储位置。用户按需重写
-        默认实现: 流式保存到本地磁盘，返回本地路径
-        云存储场景: 重写此方法上传到 OSS/S3 等，返回云存储 URL
+        将下载内容落地到 request.file_path 指定位置。用户按需重写
+        默认实现: 流式保存到本地磁盘
+        云存储场景: 重写此方法上传到 OSS/S3 等
+
         注意:
         - 此方法在下载失败重试时可能被多次调用，实现需保证幂等性
-        - 必须返回非空字符串，返回空值会触发重试直至失败
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: get_file_path 返回的路径/标识
+        - 不返回路径，路径以 file_path() 的返回值为准（即 request.file_path）
+
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         @param response: 下载响应
-        @return: str - 文件最终存储位置（不可为空）
+        @return:
+            True / None: 处理成功
+            False: 显式失败（计入 fail，不再重试）
+            抛异常: 触发框架重试
         """
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        file_path = request.file_path
+        dirname = os.path.dirname(file_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         with open(file_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        return file_path
+        return None
 
-    def on_file_downloaded(self, task_id, url, file_path):
+    def on_file_downloaded(self, request):
         """
         单个文件下载成功的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param file_path: 文件存储位置
+        @param request: 当前下载请求；可访问 request.url / request.file_path /
+            request.task / request.task_id / request.index 等
         """
         pass
 
-    def on_file_failed(self, task_id, url, error):
+    def on_file_failed(self, request, error):
         """
         单个文件下载失败的回调，用户可重写
-        @param task_id: 任务 ID
-        @param url: 文件原始 URL
-        @param error: 异常信息
+        @param request: 当前下载请求
+        @param error: 异常对象
         """
         pass
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
+    def on_task_all_done(self, task, result, stats):
         """
         任务所有文件处理完毕的回调
         用户应在此方法中 yield Item 写入结果表、yield self.update_task_batch() 更新任务状态
         @param task: PerfectDict - 任务对象，包含 task_keys 指定的字段
         @param result: List[str|None] - 每个文件的处理结果，
-            顺序与 get_download_urls 返回的列表一致。
-            成功为文件存储位置（本地路径或云存储 URL），失败为 None。
+            顺序与 start_requests 中 yield 的下载请求一致。
+            成功为 file_path() 的返回值，失败为 None。
             任务内重复URL的结果继承首次出现的结果
-        @param success_count: 成功数（含去重缓存命中）
-        @param fail_count: 下载失败数（重试耗尽）
-        @param skipped_count: 跳过数（无效URL、get_file_path异常等）
-        @param dup_count: 任务内重复URL数
-        @param total_count: 总数（success + fail + skipped + dup = total）
+        @param stats: FileTaskStats - 任务计数器
+            - stats.success / stats.fail / stats.skipped / stats.dup / stats.total
+            - 不变式: total == success + fail + skipped + dup
+            - 支持元组解包: success, fail, skipped, dup, total = stats
         """
         pass
 

@@ -45,6 +45,9 @@
 # EXPORT_DATA_MAX_FAILED_TIMES = 10  # 导出数据时最大的失败次数，包括保存和更新，超过这个次数报警
 # EXPORT_DATA_MAX_RETRY_TIMES = 10  # 导出数据时最大的重试次数，包括保存和更新，超过这个次数则放弃重试
 #
+# # 文件下载爬虫（FileSpider）
+# FILE_SAVE_DIR = "./downloads"  # FileSpider 下载根目录；构造参数 save_dir 优先级高于此项，未传时使用此值
+#
 # # 爬虫相关
 # # COLLECTOR
 # COLLECTOR_TASK_COUNT = 32  # 每次获取任务数量，追求速度推荐32

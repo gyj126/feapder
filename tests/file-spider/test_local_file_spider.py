@@ -24,14 +24,15 @@ class LocalFileSpider(feapder.FileSpider):
         MYSQL_USER_PASS="feapder123",
     )
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
-    def on_file_downloaded(self, task_id, url, file_path):
-        log.info(f"任务{task_id} 文件保存成功 path={file_path}")
+    def on_file_downloaded(self, request):
+        log.info(f"任务{request.task_id} 文件保存成功 path={request.file_path}")
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        if fail_count == 0 and success_count > 0:
+    def on_task_all_done(self, task, result, stats):
+        if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)

@@ -112,6 +112,8 @@ if __name__ == "__main__":
 
 main函数为命令行参数解析，分别定义了两种获取任务的方式。start函数为从mysql里获取任务，前提是需要有任务表。start2函数为从redis里获取任务，指定了根任务的key为`spider_task2`，key的类型为zset
 
+> 任务表索引建议：mysql 任务表的 `state` 字段是调度核心字段，框架会按 `check_task_interval`（默认 5 秒）轮询 `where state=0` 取待做任务、`where state=2` 检查丢失任务。任务表行数较多时，建议加单列索引 `KEY idx_state (state)`；如果配合 `task_condition` 按业务字段筛选，建议改建复合索引 `KEY idx_state_xxx (state, 业务字段...)`，将 `state` 放在最左。
+
 启动：TaskSpider分为master及work两种程序
 
 1. master负责下发任务，监控批次进度，创建批次等功能，启动方式：

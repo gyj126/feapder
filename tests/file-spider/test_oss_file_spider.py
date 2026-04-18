@@ -30,24 +30,24 @@ class OssFileSpider(feapder.FileSpider):
         # 初始化云存储客户端
         # self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
-    def get_file_path(self, task, url, index):
-        """返回 OSS 存储 key（不是本地路径）"""
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    def file_path(self, request):
+        """返回 OSS 存储 key，即 result 列表里要存的值"""
+        filename = os.path.basename(unquote(urlparse(request.url).path))
+        return f"files/{request.task.id}/{request.index}_{filename}"
 
-    def process_file(self, task_id, url, file_path, response):
-        """上传到 OSS，返回云存储 URL"""
-        # self.oss_client.put_object(file_path, response.content)
-        cloud_url = f"https://my-bucket.oss.aliyuncs.com/{file_path}"
-        log.info(f"任务{task_id} 上传成功 url={cloud_url}")
-        return cloud_url
+    def process_file(self, request, response):
+        """上传到 OSS。返回 None=成功，返回 False=显式失败，抛异常=重试"""
+        # self.oss_client.put_object(request.file_path, response.content)
+        log.info(f"任务{request.task_id} 上传成功 key={request.file_path}")
+        return None
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        log.info(f"任务{task.id} 完成 成功={success_count} 失败={fail_count}")
-        if fail_count == 0 and success_count > 0:
+    def on_task_all_done(self, task, result, stats):
+        log.info(f"任务{task.id} 完成 成功={stats.success} 失败={stats.fail}")
+        if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)

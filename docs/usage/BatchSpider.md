@@ -116,9 +116,12 @@ CREATE TABLE `batch_spider_task` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `url` varchar(255) DEFAULT NULL,
   `state` int(11) DEFAULT '0',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_state` (`state`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 ```
+
+> 索引建议：`state` 是调度核心字段，框架会反复执行 `where state=0` 取待做任务、`where state=2` 检查丢失任务，任务表较大时建议加索引 `KEY idx_state (state)`；如使用了 `task_condition` 按业务字段筛选任务，建议建立 `(state, 业务字段...)` 复合索引并将 `state` 放最左。
 
 也许有人会问，为什么要弄个任务表，直接把种子任务写到代码里不行么。答：可以的，可以用`AirSpider`或`Spider`这么搞。`BatchSpider`面向的场景是周期性抓取，如我们有1亿个商品需要更新，不可能把这1亿个商品id都写代码里，还是需要存储到一张表里，这个表即为任务表。
 

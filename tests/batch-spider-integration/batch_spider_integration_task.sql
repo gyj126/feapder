@@ -6,7 +6,8 @@ CREATE TABLE `batch_spider_integration_task` (
   `url` varchar(255) DEFAULT NULL,
   `parser_name` varchar(255) DEFAULT NULL,
   `state` int(11) DEFAULT '0',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_state` (`state`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------

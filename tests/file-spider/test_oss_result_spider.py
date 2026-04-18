@@ -55,33 +55,39 @@ class OssResultSpider(feapder.FileSpider):
         super().__init__(*args, **kwargs)
         # self.oss_client = OSSClient(bucket="my-bucket")
 
-    def get_download_urls(self, task):
-        return json.loads(task.file_urls)
+    def start_requests(self, task):
+        for url in json.loads(task.file_urls):
+            yield self.download_request(task, url)
 
-    def get_file_path(self, task, url, index):
-        filename = os.path.basename(unquote(urlparse(url).path))
-        return f"files/{task.id}/{index}_{filename}"
+    OSS_BASE_URL = "https://my-bucket.oss.aliyuncs.com"
 
-    def process_file(self, task_id, url, file_path, response):
-        # self.oss_client.put_object(file_path, response.content)
-        return f"https://my-bucket.oss.aliyuncs.com/{file_path}"
+    def file_path(self, request):
+        """返回 OSS 存储 key（即 result 列表里要存的值）"""
+        filename = os.path.basename(unquote(urlparse(request.url).path))
+        return f"files/{request.task.id}/{request.index}_{filename}"
 
-    def on_task_all_done(self, task, result, success_count, fail_count, skipped_count, dup_count, total_count):
-        # result 与 get_download_urls 返回的列表严格位置对应
-        # 例: ["https://oss.com/a.jpg", "https://oss.com/b.jpg", None, "https://oss.com/d.jpg"]
+    def process_file(self, request, response):
+        # self.oss_client.put_object(request.file_path, response.content)
+        return None
+
+    def on_task_all_done(self, task, result, stats):
+        # result 与 start_requests 中 yield 的下载请求顺序严格位置对应
+        # 元素是 file_path() 返回的 OSS key，下载失败/跳过为 None
         log.info(
-            f"任务{task.id} 完成 成功={success_count} 失败={fail_count} "
-            f"跳过={skipped_count} 去重={dup_count}"
+            f"任务{task.id} 完成 成功={stats.success} 失败={stats.fail} "
+            f"跳过={stats.skipped} 去重={stats.dup}"
         )
 
-        # 组装结果 Item 写入结果表
+        # 把 OSS key 拼成可访问 URL 后写入结果表
+        result_urls = [
+            f"{self.OSS_BASE_URL}/{key}" if key else None for key in result
+        ]
         item = FileResultItem()
         item.task_id = task.id
-        item.result_urls = result
+        item.result_urls = result_urls
         yield item
 
-        # 更新任务状态
-        if fail_count == 0:
+        if stats.fail == 0:
             yield self.update_task_batch(task.id, 1)
         else:
             yield self.update_task_batch(task.id, -1)
