@@ -263,6 +263,16 @@ class MyFileSpider(feapder.FileSpider):
 
 ## 4. 使用示例
 
+### 命令行生成的脚手架
+
+通过命令行快速生成 FileSpider 模板：
+
+```bash
+feapder create -s my_file_spider FileSpider
+```
+
+生成的脚手架已包含全部 7 个用户钩子（`start_requests` / `on_task_all_done` / `file_path` / `process_file` / `validate` / `on_file_downloaded` / `on_file_failed`），方法体即第 2 章列出的框架默认行为。按需保留或删除——未重写的方法即使从模板中删除也不会影响功能，框架会回退到父类的同名实现。
+
 ### 启动方式（单进程 / master-worker 分离）
 
 FileSpider 支持两种启动方式：
