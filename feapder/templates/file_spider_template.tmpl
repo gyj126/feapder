@@ -7,7 +7,10 @@ Created on {DATE}
 @author: {USER}
 """
 
+import hashlib
 import json
+import os
+from urllib.parse import urlparse, unquote
 
 import feapder
 from feapder import ArgumentParser
@@ -27,12 +30,47 @@ class ${spider_name}(feapder.FileSpider):
     )
 
     def start_requests(self, task):
+        """yield 该任务的所有下载请求，必须使用 self.download_request 构造，详见 docs/usage/FileSpider.md"""
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
+    def file_path(self, request):
+        """返回文件最终存储位置/标识；本地场景返回路径，云存储场景返回对象 key"""
+        url = request.url
+        parsed = urlparse(url)
+        raw_name = os.path.basename(unquote(parsed.path)) or "unknown"
+        _, ext = os.path.splitext(raw_name)
+        name_hash = hashlib.md5(raw_name.encode()).hexdigest()
+        filename = f"{request.index}_{name_hash}{ext}"
+        return os.path.join(self._save_dir, str(request.task.id), filename)
+
+    def process_file(self, request, response):
+        """落地下载内容到 request.file_path；返回 None/True 成功、False 显式失败、抛异常触发重试"""
+        file_path = request.file_path
+        dirname = os.path.dirname(file_path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        with open(file_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        return None
+
+    def validate(self, request, response):
+        """下载响应校验：4xx/5xx 抛异常触发重试，3xx 由 requests 自动跟随"""
+        if response and response.status_code >= 400:
+            raise Exception(f"文件下载HTTP {response.status_code} url={request.url}")
+
+    def on_file_downloaded(self, request):
+        """单文件下载成功回调，按需重写"""
+        pass
+
+    def on_file_failed(self, request, error):
+        """单文件下载失败回调，按需重写"""
+        pass
+
     def on_task_all_done(self, task, result, stats):
-        # 任务状态需在此显式更新；实现需保证幂等，异常可能触发任务重试
-        # stats.fail == 0 且有实际成功下载则标记完成；全部跳过或无有效URL标记失败
+        """任务所有文件处理完毕的回调；任务状态需在此显式更新，实现需保证幂等"""
         if stats.fail == 0 and stats.success > 0:
             yield self.update_task_batch(task.id, 1)
         else:
