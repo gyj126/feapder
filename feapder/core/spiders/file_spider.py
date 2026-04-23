@@ -185,12 +185,15 @@ class FileSpider(TaskSpider):
         """
         raise NotImplementedError("必须实现 start_requests 方法")
 
-    def download_request(self, task, url, **kwargs):
+    def download_request(self, task, url, dedup_key=None, **kwargs):
         """
         构造下载请求的辅助方法。
 
         @param task: 任务对象（必须传入，框架据此追踪进度）
         @param url: 文件 URL
+        @param dedup_key: 显式去重键，优先级最高。
+            URL 带时效签名（OSS/S3/COS 等）时，传入稳定标识可避免去重失效。
+            不传则走 dedup_key(request) 钩子，最后 fallback 到 request.url。
         @param kwargs: 透传到 Request 的其他参数（headers/method/data/proxies/render/timeout 等）
         @return: Request - 标记为下载请求的 Request 对象
 
@@ -201,12 +204,32 @@ class FileSpider(TaskSpider):
         if "callback" in kwargs and kwargs["callback"] is not self.save_file:
             log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
         kwargs["callback"] = self.save_file
-        return Request(
+        request = Request(
             url,
             task=task,
             is_file_download=True,
             **kwargs,
         )
+        if dedup_key is not None:
+            request.dedup_key = dedup_key
+        return request
+
+    def dedup_key(self, request):
+        """
+        返回用于跨任务/任务内去重的稳定键，用户可重写。
+        默认返回 request.url。
+
+        典型场景：URL 带时效签名（如阿里云 OSS、AWS S3、腾讯云 COS）时，
+        签名/时间戳每次都不同，会导致去重失效与缓存膨胀。重写本方法剥离签名相关
+        query 参数即可恢复去重命中率，可配合 feapder.utils.tools.normalize_url 使用。
+
+        优先级（由 _resolve_dedup_key 决定）：
+            request.dedup_key（显式参数） > self.dedup_key(request)（本钩子） > request.url
+
+        @param request: 当前下载请求；可访问 request.url / request.task / request.index 等
+        @return: str - 去重键
+        """
+        return request.url
 
     def file_path(self, request):
         """
@@ -304,6 +327,26 @@ class FileSpider(TaskSpider):
         pass
 
     # ===================== 框架内部方法 =====================
+
+    def _resolve_dedup_key(self, request):
+        """
+        解析下载请求的去重键并回写到 request.dedup_key，避免重复计算。
+        优先级：request.dedup_key（显式参数） > self.dedup_key(request)（钩子） > request.url。
+
+        @return: str - 去重键
+        """
+        existing = getattr(request, "dedup_key", None)
+        if existing:
+            return existing
+        try:
+            key = self.dedup_key(request)
+        except Exception as e:
+            log.error(f"dedup_key钩子异常 url={request.url} error={e}")
+            key = None
+        if not key:
+            key = request.url
+        request.dedup_key = key
+        return key
 
     # Lua 脚本: 原子操作 - 轮次校验 + 幂等写入结果 + 递增计数 + 设置TTL + 检查完成
     # KEYS[1]=progress_key  KEYS[2]=result_key
@@ -455,30 +498,32 @@ return {0, total, success, fail, skipped, dup}
             url = url.strip()
             request.url = url
 
-            if url in seen_urls:
-                dup_to_source[index] = seen_urls[url]
-                dup_count += 1
-                log.debug(f"任务{task_id} URL任务内去重 index={index} -> {seen_urls[url]}")
-                continue
-            seen_urls[url] = index
-
-            # 提前注入文件维度上下文，供 file_path 钩子及缓存命中回调使用
+            # 提前注入文件维度上下文，供 file_path / dedup_key 钩子及缓存命中回调使用
             request.task = task
             request.task_id = task_id
             request.index = index
             request.run_id = run_id
 
+            dedup_key = self._resolve_dedup_key(request)
+
+            if dedup_key in seen_urls:
+                dup_to_source[index] = seen_urls[dedup_key]
+                dup_count += 1
+                log.debug(f"任务{task_id} URL任务内去重 index={index} -> {seen_urls[dedup_key]} key={dedup_key}")
+                continue
+            seen_urls[dedup_key] = index
+
             if self._file_dedup:
                 try:
-                    cached_result = self._file_dedup.get(url)
+                    cached_result = self._file_dedup.get(dedup_key)
                 except Exception as e:
-                    log.error(f"任务{task_id} 去重缓存查询异常 url={url} error={e}")
+                    log.error(f"任务{task_id} 去重缓存查询异常 key={dedup_key} error={e}")
                     cached_result = None
                 if cached_result is not None:
                     result_mapping[str(index)] = cached_result
                     cached_count += 1
                     request.file_path = cached_result
-                    log.debug(f"任务{task_id} 文件去重命中 url={url}")
+                    log.debug(f"任务{task_id} 文件去重命中 key={dedup_key}")
                     try:
                         self.on_file_downloaded(request)
                     except Exception as e:
@@ -649,10 +694,11 @@ return {0, total, success, fail, skipped, dup}
         # 仅在 run_id 校验通过、结果被正式接受时写入跨任务去重缓存，
         # 避免过期回调（旧轮次请求晚到）污染 dedup
         if self._file_dedup:
+            dedup_key = getattr(request, "dedup_key", None) or url
             try:
-                self._file_dedup.set(url, file_path)
+                self._file_dedup.set(dedup_key, file_path)
             except Exception as e:
-                log.error(f"任务{task_id} 去重缓存写入异常 url={url} error={e}")
+                log.error(f"任务{task_id} 去重缓存写入异常 key={dedup_key} error={e}")
 
         log.info(f"任务{task_id} 文件下载成功 [{success + fail + skipped + dup}/{total}] url={url}")
 
