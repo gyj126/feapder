@@ -461,7 +461,7 @@ class OssResultSpider(feapder.FileSpider):
 
 ### 场景四：启用文件去重
 
-通过 `file_dedup` 参数启用跨任务去重，同一 URL 跨任务不重复下载：
+通过 `file_dedup` 参数启用跨任务去重，文件成功下载后可被后续任务直接复用：
 
 ```python
 import json
@@ -532,7 +532,7 @@ def start_requests(self, task):
 FileSpider 提供两级去重：
 
 1. **任务内去重（自动）**: 同一任务的 URL 列表中出现的重复 URL，只下载一次，重复项继承首次出现的结果
-2. **跨任务去重（可选）**: 通过 `file_dedup` 参数启用，不同任务中出现的相同 URL 只下载一次
+2. **跨任务去重（可选）**: 通过 `file_dedup` 参数启用，文件成功下载后，后续任务遇到相同去重键可直接复用结果
 
 ### 跨任务去重策略
 
@@ -559,6 +559,61 @@ class MyFileDedup(FileDedup):
         """缓存处理结果"""
         ...
 ```
+
+### 带时效签名的 URL 去重
+
+阿里云 OSS、AWS S3、腾讯云 COS、CloudFront 等签名 URL 形如：
+
+```
+https://oss.example.com/img/abc.jpg?Expires=1761000000&Signature=xxx&OSSAccessKeyId=yyy
+```
+
+每次请求 `Expires` / `Signature` 都会变化。若直接以原始 URL 作为去重键：
+
+- 任务内去重失效（同一逻辑文件被多次下载）
+- 跨任务缓存命中率近 0，缓存条目随时间膨胀
+
+FileSpider 提供两种方式自定义去重键，**优先级**：`download_request(..., dedup_key=...)` > `dedup_key(request)` 钩子 > `request.url`（默认）。
+
+#### 方式一：重写 `dedup_key` 钩子（推荐，规则统一）
+
+适合同一爬虫的所有 URL 来自同一签名机制：
+
+```python
+from feapder import FileSpider
+from feapder.utils.tools import normalize_url
+
+class MyFileSpider(FileSpider):
+    def dedup_key(self, request):
+        return normalize_url(request.url)
+```
+
+`normalize_url` 默认会剥离较保守的云厂商签名 query 参数（如 `Expires`、`Signature`、`OSSAccessKeyId`、`security-token`、`Key-Pair-Id`、`Policy`，以及大小写无关的前缀规则 `X-Amz-*`、`q-sign*`、`q-header-*`、`q-url-param-*`），保留其他业务参数。若业务侧还需要忽略 `token`、`sign`、`timestamp` 等通用字段，可显式传入 `strip_params`：
+
+```python
+normalize_url(url, strip_params={"Expires", "Signature"})      # 仅剥指定参数
+normalize_url(url, strip_params={"token", "q-*"})              # 额外忽略通用字段 / 前缀
+normalize_url(url, only_path=True)                               # 只保留 scheme://netloc/path
+```
+
+#### 方式二：请求级显式参数（任务表已有稳定 ID）
+
+适合任务表本身存了 OSS key、文件 ID 等稳定标识：
+
+```python
+def start_requests(self, task):
+    for row in task.files:
+        yield self.download_request(task, row["signed_url"], dedup_key=row["oss_key"])
+```
+
+#### 去重键与 file_path 的关系
+
+| 概念 | 作用 | 默认值 | 示例 |
+|------|------|--------|------|
+| `dedup_key` | 去重缓存的**键**（命中索引） | `request.url` | `oss://bucket/img/a.jpg` |
+| `file_path` | 去重缓存的**值**（存储位置） | `{save_dir}/{task.id}/{index}_{md5}{ext}` | `./downloads/1/0_abc.jpg` |
+
+两者独立，分别由 `dedup_key()` 和 `file_path()` 钩子决定。
 
 ## 6. Debug 模式
 

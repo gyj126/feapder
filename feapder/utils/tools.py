@@ -567,6 +567,110 @@ def parse_url_params(url):
     return root_url, params
 
 
+# 默认剥离的签名参数模式集合：
+#   - 以 `*` 结尾视为前缀通配（大小写无关），如 "X-Amz-*" 匹配 X-Amz-Signature 等
+#   - 其余按精确名匹配（同样大小写无关）
+_SIGNATURE_QUERY_PARAM_PATTERNS = frozenset(
+    {
+        # 阿里云 OSS / CloudFront 常见签名字段
+        "Expires",
+        "Signature",
+        "AWSAccessKeyId",
+        "OSSAccessKeyId",
+        "security-token",
+        "Key-Pair-Id",
+        "Policy",
+        # AWS S3
+        "X-Amz-*",
+        # 腾讯云 COS
+        "q-ak",
+        "q-key-time",
+        "q-sign*",
+        "q-header-*",
+        "q-url-param-*",
+    }
+)
+
+
+def _build_query_matchers(patterns):
+    exact_names = set()
+    prefix_set = set()
+
+    for pattern in patterns or []:
+        if pattern is None:
+            continue
+
+        normalized = str(pattern).strip().lower()
+        if not normalized:
+            continue
+
+        if normalized.endswith("*"):
+            prefix_set.add(normalized[:-1])
+        else:
+            exact_names.add(normalized)
+
+    return exact_names, tuple(prefix_set)
+
+
+def _match_query_name(name, exact_names, prefix_names):
+    normalized = str(name).strip().lower()
+    if normalized in exact_names:
+        return True
+
+    return any(normalized.startswith(prefix) for prefix in prefix_names)
+
+
+def normalize_url(url, strip_params=None, only_path=False):
+    """
+    标准化 URL 用于去重，剥离签名等会变动的 query 参数，并复用 canonicalize_url 的排序/去锚点语义。
+
+    主要用于 FileSpider.dedup_key 重写场景：URL 带签名/时间戳时，原始 URL 不稳定，
+    会导致跨任务/任务内去重失效。归一化后可恢复去重命中率。
+
+    @param url: 原始 URL
+    @param strip_params: 要剥离的 query 参数集合/列表。支持大小写无关的精确匹配与前缀匹配。
+        - 精确匹配：如 "Signature"
+        - 前缀通配：以 `*` 结尾，如 {"X-Amz-*", "q-sign*"} 表示匹配该前缀下的所有参数
+        - 全部剥离：传 {"*"} 等同剥光全部 query 参数（前缀通配的自然延伸）
+        - None 时使用内置保守云厂商签名字段集合（不含 token/sign/timestamp 等可能为业务字段的通用名）
+    @param only_path: True 时仅保留 scheme://netloc/path，丢弃全部 query 与 fragment
+    @return: str - 归一化后的 URL
+
+    行为说明：
+    - **fragment 一律丢弃**（fragment 不参与服务端请求，与 canonicalize_url 行为一致）
+    - **query 参数会按字母序重排**（canonicalize_url 行为，保证同语义不同顺序的 URL 得到同一 key）
+    - **path 部分大小写敏感、不会归一化**（保留服务端可能的大小写区分）
+
+    >>> normalize_url("https://oss.example.com/img/a.jpg?Expires=1&Signature=x&OSSAccessKeyId=y")
+    'https://oss.example.com/img/a.jpg'
+    >>> normalize_url("https://bucket.s3.amazonaws.com/a.jpg?page=2&biz=1&X-Amz-Signature=abc")
+    'https://bucket.s3.amazonaws.com/a.jpg?biz=1&page=2'
+    >>> normalize_url("https://oss.example.com/img/a.jpg?biz=1&t=123", only_path=True)
+    'https://oss.example.com/img/a.jpg'
+    """
+    if not url:
+        return url
+
+    parts = urllib.parse.urlsplit(url)
+
+    if only_path:
+        path_only_url = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        return canonicalize_url(path_only_url)
+
+    if not parts.query:
+        return canonicalize_url(url)
+
+    strip_patterns = _SIGNATURE_QUERY_PARAM_PATTERNS if strip_params is None else strip_params
+    exact_names, prefix_names = _build_query_matchers(strip_patterns)
+
+    pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    kept = [(k, v) for k, v in pairs if not _match_query_name(k, exact_names, prefix_names)]
+    normalized_url = urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(kept, doseq=True), "")
+    )
+    return canonicalize_url(normalized_url)
+
+
 def urlencode(params):
     """
     字典类型的参数转为字符串

@@ -3,7 +3,12 @@
 文件去重缓存
 
 与现有 Dedup（布隆过滤器等，只判断存在性）不同，
-FileDedup 存储 URL -> result_url 的完整映射，用于直接复用下载结果。
+FileDedup 存储 dedup_key -> result_url 的完整映射，用于直接复用下载结果。
+
+说明：
+    dedup_key 默认即为原始 URL；当 URL 带时效签名（OSS/S3/COS 等）时，
+    可通过 FileSpider.dedup_key 钩子或 download_request(..., dedup_key=...)
+    传入归一化后的稳定键，避免缓存膨胀与命中率下降。
 """
 
 import hashlib
@@ -21,10 +26,10 @@ class FileDedup:
     """
 
     def get(self, url):
-        """获取 URL 对应的缓存结果
+        """获取去重键对应的缓存结果
 
         Args:
-            url: 文件原始 URL
+            url: 去重键（默认为文件原始 URL；签名 URL 场景下为归一化后的稳定键）
 
         Returns:
             str or None: 缓存的文件存储位置，无缓存返回 None
@@ -32,10 +37,10 @@ class FileDedup:
         return None
 
     def set(self, url, result_url):
-        """缓存 URL 的处理结果
+        """缓存去重键的处理结果
 
         Args:
-            url: 文件原始 URL
+            url: 去重键（默认为文件原始 URL；签名 URL 场景下为归一化后的稳定键）
             result_url: 文件最终存储位置（本地路径或云存储 URL）
         """
         pass
@@ -99,8 +104,8 @@ class MysqlFileDedup(FileDedup):
         sql = (
             f"CREATE TABLE IF NOT EXISTS `{self._table}` ("
             f"  `id` int(11) NOT NULL AUTO_INCREMENT,"
-            f"  `url` text NOT NULL COMMENT '文件原始URL',"
-            f"  `url_hash` char(32) NOT NULL COMMENT 'URL的MD5哈希',"
+            f"  `url` text NOT NULL COMMENT '去重键（默认为URL，签名URL时为归一化后的稳定键）',"
+            f"  `url_hash` char(32) NOT NULL COMMENT '去重键的MD5哈希',"
             f"  `result_url` text COMMENT '文件存储位置',"
             f"  `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,"
             f"  PRIMARY KEY (`id`),"
