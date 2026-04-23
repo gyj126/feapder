@@ -567,6 +567,9 @@ def parse_url_params(url):
     return root_url, params
 
 
+# 默认剥离的签名参数模式集合：
+#   - 以 `*` 结尾视为前缀通配（大小写无关），如 "X-Amz-*" 匹配 X-Amz-Signature 等
+#   - 其余按精确名匹配（同样大小写无关）
 _SIGNATURE_QUERY_PARAM_PATTERNS = frozenset(
     {
         # 阿里云 OSS / CloudFront 常见签名字段
@@ -591,7 +594,7 @@ _SIGNATURE_QUERY_PARAM_PATTERNS = frozenset(
 
 def _build_query_matchers(patterns):
     exact_names = set()
-    prefix_names = []
+    prefix_set = set()
 
     for pattern in patterns or []:
         if pattern is None:
@@ -602,11 +605,11 @@ def _build_query_matchers(patterns):
             continue
 
         if normalized.endswith("*"):
-            prefix_names.append(normalized[:-1])
+            prefix_set.add(normalized[:-1])
         else:
             exact_names.add(normalized)
 
-    return exact_names, tuple(prefix_names)
+    return exact_names, tuple(prefix_set)
 
 
 def _match_query_name(name, exact_names, prefix_names):
@@ -625,10 +628,18 @@ def normalize_url(url, strip_params=None, only_path=False):
     会导致跨任务/任务内去重失效。归一化后可恢复去重命中率。
 
     @param url: 原始 URL
-    @param strip_params: 要剥离的 query 参数集合/列表。支持大小写无关的精确匹配与前缀匹配，
-        前缀规则以 * 结尾，例如 {"X-Amz-*", "q-sign*"}。None 时使用内置的保守云厂商签名字段集合
+    @param strip_params: 要剥离的 query 参数集合/列表。支持大小写无关的精确匹配与前缀匹配。
+        - 精确匹配：如 "Signature"
+        - 前缀通配：以 `*` 结尾，如 {"X-Amz-*", "q-sign*"} 表示匹配该前缀下的所有参数
+        - 全部剥离：传 {"*"} 等同剥光全部 query 参数（前缀通配的自然延伸）
+        - None 时使用内置保守云厂商签名字段集合（不含 token/sign/timestamp 等可能为业务字段的通用名）
     @param only_path: True 时仅保留 scheme://netloc/path，丢弃全部 query 与 fragment
     @return: str - 归一化后的 URL
+
+    行为说明：
+    - **fragment 一律丢弃**（fragment 不参与服务端请求，与 canonicalize_url 行为一致）
+    - **query 参数会按字母序重排**（canonicalize_url 行为，保证同语义不同顺序的 URL 得到同一 key）
+    - **path 部分大小写敏感、不会归一化**（保留服务端可能的大小写区分）
 
     >>> normalize_url("https://oss.example.com/img/a.jpg?Expires=1&Signature=x&OSSAccessKeyId=y")
     'https://oss.example.com/img/a.jpg'
