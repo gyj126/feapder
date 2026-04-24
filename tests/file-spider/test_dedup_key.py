@@ -229,6 +229,7 @@ install_test_stubs()
 
 from feapder.core.spiders.file_spider import FileSpider
 from feapder.network.request import Request
+from feapder.network.response import Response
 from feapder.utils.tools import normalize_url
 
 
@@ -465,6 +466,27 @@ class TestFileSpiderDedupFlow(unittest.TestCase):
             dedup.set_calls,
             [("https://bucket.s3.amazonaws.com/a.png", "/tmp/a.png")],
         )
+
+
+class TestFileSpiderValidate(unittest.TestCase):
+    def test_validate_returns_false_for_404(self):
+        spider = build_spider(FileSpider)
+        request = Request("https://example.com/missing.pdf")
+        response = Response.from_text("", url=request.url)
+        response.status_code = 404
+
+        self.assertFalse(spider.validate(request, response))
+
+    def test_validate_raises_for_500(self):
+        spider = build_spider(FileSpider)
+        request = Request("https://example.com/error.pdf")
+        response = Response.from_text("", url=request.url)
+        response.status_code = 500
+
+        with self.assertRaises(Exception) as ctx:
+            spider.validate(request, response)
+
+        self.assertIn("文件下载HTTP 500", str(ctx.exception))
 
 
 if __name__ == "__main__":

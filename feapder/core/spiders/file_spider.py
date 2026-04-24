@@ -284,7 +284,11 @@ class FileSpider(TaskSpider):
         return None
 
     def validate(self, request, response):
-        """文件下载默认校验: 4xx/5xx响应抛异常触发重试，3xx由requests自动跟随。用户可重写"""
+        """文件下载默认校验: 404 直接判失败不重试，其余 4xx/5xx 仍抛异常触发重试。用户可重写"""
+        if response and response.status_code == 404:
+            log.warning(f"资源404，丢弃当前请求 url={request.url}")
+            return False
+
         if response and response.status_code >= 400:
             raise Exception(
                 f"文件下载HTTP {response.status_code} url={request.url}"
