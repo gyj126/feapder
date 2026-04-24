@@ -55,7 +55,7 @@ class ProxyPool(BaseProxyPool):
 
             return self.format_proxy(proxy)
         except Exception as e:
-            tools.send_msg("获取代理失败", level="error")
+            tools.send_msg("获取代理失败", level="warning")
             raise Exception("获取代理失败", e)
 
     def del_proxy(self, proxy):

@@ -660,7 +660,7 @@ class BatchSpider(BatchParser, Scheduler):
                         ):  # 已经超时
                             self.send_msg(
                                 msg,
-                                level="error",
+                                level="warning",
                                 message_prefix="《{}》本批次未完成, 正在等待依赖爬虫 {} 结束".format(
                                     self._batch_name,
                                     self._related_batch_record
@@ -681,7 +681,7 @@ class BatchSpider(BatchParser, Scheduler):
                 if not is_first_check:
                     if self._batch_timeout:  # 之前报警过已超时，现在已完成，发出恢复消息
                         self._batch_timeout = False
-                    self.send_msg(msg, level="info")
+                    self.send_msg(msg, level="debug")
 
                 # 判断下一批次是否到
                 if time_difference >= datetime.timedelta(days=self._batch_interval):
@@ -690,7 +690,7 @@ class BatchSpider(BatchParser, Scheduler):
 
                     msg = "《{}》下一批次开始".format(self._batch_name)
                     log.info(msg)
-                    self.send_msg(msg)
+                    self.send_msg(msg, level="debug")
 
                     # 初始化任务表状态
                     if self.init_task() != False:  # 更新失败返回False 其他返回True/None
@@ -718,7 +718,10 @@ class BatchSpider(BatchParser, Scheduler):
                 else:
                     log.info("《{}》下次批次时间未到".format(self._batch_name))
                     if not is_first_check:
-                        self.send_msg("《{}》下次批次时间未到".format(self._batch_name))
+                        self.send_msg(
+                            "《{}》下次批次时间未到".format(self._batch_name),
+                            level="debug",
+                        )
                     return True
 
             else:
@@ -768,8 +771,8 @@ class BatchSpider(BatchParser, Scheduler):
                     log.info(msg)
                     self.send_msg(
                         msg,
-                        level="error",
-                        message_prefix="《{}》批次超时".format(self._batch_name),
+                        level="warning",
+                        message_prefix=f"《{self._batch_name}》批次超时",
                     )
                     self._batch_timeout = True
 
@@ -826,7 +829,7 @@ class BatchSpider(BatchParser, Scheduler):
                             self.send_msg(
                                 msg,
                                 level="info",
-                                message_prefix="《{}》批次可能超时".format(self._batch_name),
+                                message_prefix=f"《{self._batch_name}》批次可能超时",
                             )
                             self._batch_timeout = True
 
@@ -1024,10 +1027,12 @@ class BatchSpider(BatchParser, Scheduler):
                 tools.delay_time(10)  # 10秒钟检查一次爬虫状态
 
         except Exception as e:
-            msg = "《%s》主线程异常 爬虫结束 exception: %s" % (self._batch_name, e)
+            msg = f"《{self._batch_name}》主线程异常 爬虫结束 exception: {e}"
             log.error(msg)
             self.send_msg(
-                msg, level="error", message_prefix="《%s》爬虫异常结束".format(self._batch_name)
+                msg,
+                level="error",
+                message_prefix=f"《{self._batch_name}》爬虫异常结束",
             )
 
             os._exit(137)  # 使退出码为35072 方便爬虫管理器重启

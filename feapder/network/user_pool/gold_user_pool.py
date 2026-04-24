@@ -272,7 +272,7 @@ class GoldUserPool(UserPoolInterface):
 
                                 send_msg(
                                     msg=msg,
-                                    level="error",
+                                    level="warning",
                                     message_prefix=f"{user.username} 账号登陆失败",
                                 )
 

@@ -408,7 +408,7 @@ class ItemBuffer(threading.Thread):
                 log.error(msg)
                 tools.send_msg(
                     msg=msg,
-                    level="error",
+                    level="warning",
                     message_prefix="《%s》爬虫导出数据失败" % (self._redis_key),
                 )
 
