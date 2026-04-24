@@ -544,10 +544,12 @@ class TaskSpider(TaskParser, Scheduler):
                 tools.delay_time(10)  # 10秒钟检查一次爬虫状态
 
         except Exception as e:
-            msg = "《%s》主线程异常 爬虫结束 exception: %s" % (self.name, e)
+            msg = f"《{self.name}》主线程异常 爬虫结束 exception: {e}"
             log.error(msg)
             self.send_msg(
-                msg, level="error", message_prefix="《%s》爬虫异常结束".format(self.name)
+                msg,
+                level="error",
+                message_prefix=f"《{self.name}》爬虫异常结束",
             )
 
             os._exit(137)  # 使退出码为35072 方便爬虫管理器重启

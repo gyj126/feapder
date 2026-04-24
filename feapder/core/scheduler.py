@@ -338,7 +338,7 @@ class Scheduler(TailThread):
             log.error(msg)
             self.send_msg(
                 msg,
-                level="error",
+                level="warning",
                 message_prefix="《%s》爬虫当前失败请求数报警" % (self._spider_name),
             )
 
@@ -362,7 +362,7 @@ class Scheduler(TailThread):
                 log.error(msg)
                 self.send_msg(
                     msg,
-                    level="error",
+                    level="warning",
                     message_prefix="《%s》爬虫当前请求成功率报警" % (self._spider_name),
                 )
 
@@ -401,7 +401,9 @@ class Scheduler(TailThread):
             )
             log.error(msg)
             self.send_msg(
-                msg, level="error", message_prefix="《%s》爬虫导出数据失败" % (self._spider_name)
+                msg,
+                level="warning",
+                message_prefix="《%s》爬虫导出数据失败" % (self._spider_name),
             )
 
     def delete_tables(self, delete_keys):
@@ -429,8 +431,7 @@ class Scheduler(TailThread):
         self.heartbeat_stop()
         self._started.clear()
 
-    def send_msg(self, msg, level="debug", message_prefix=""):
-        # log.debug("发送报警 level:{} msg{}".format(level, msg))
+    def send_msg(self, msg, level="info", message_prefix=""):
         tools.send_msg(msg=msg, level=level, message_prefix=message_prefix)
 
     def spider_begin(self):
@@ -455,7 +456,7 @@ class Scheduler(TailThread):
             )
 
             # 发送消息
-            self.send_msg("《%s》爬虫开始" % self._spider_name)
+            self.send_msg("《%s》爬虫开始" % self._spider_name, level="debug")
 
     def spider_end(self):
         self.record_end_time()
@@ -493,7 +494,7 @@ class Scheduler(TailThread):
             )
             log.info(msg)
 
-            self.send_msg(msg)
+            self.send_msg(msg, level="debug")
 
         if self._keep_alive:
             log.info("爬虫不自动结束， 等待下一轮任务...")

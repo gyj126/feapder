@@ -2897,10 +2897,26 @@ def qmsg_warning(
         return False
 
 
-def send_msg(msg, level="DEBUG", message_prefix="", keyword="feapder报警系统\n"):
-    if setting.WARNING_LEVEL == "ERROR":
-        if level.upper() != "ERROR":
-            return
+_LEVEL_PRIORITY = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
+
+
+def send_msg(msg, level="INFO", message_prefix="", keyword="feapder报警系统\n"):
+    """统一报警分发入口，按 setting.WARNING_LEVEL 阈值过滤后分发到所有已配置渠道
+
+    Args:
+        msg: 报警内容
+        level: 报警级别，DEBUG / INFO / WARNING / ERROR；level 优先级 >= WARNING_LEVEL 时才会发送
+        message_prefix: 报警前缀（用于频率去重和邮件标题等）
+        keyword: 钉钉/企微/飞书/Qmsg 消息正文前的关键词
+    """
+    threshold = (setting.WARNING_LEVEL or "DEBUG").upper()
+    msg_level = (level or "INFO").upper()
+    if threshold not in _LEVEL_PRIORITY:
+        threshold = "DEBUG"
+    if msg_level not in _LEVEL_PRIORITY:
+        msg_level = "INFO"
+    if _LEVEL_PRIORITY[msg_level] < _LEVEL_PRIORITY[threshold]:
+        return
 
     if setting.DINGDING_WARNING_URL:
         dingding_warning(keyword + msg, message_prefix=message_prefix)
