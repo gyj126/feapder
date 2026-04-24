@@ -45,7 +45,7 @@ requires = [
     "cryptography>=3.3.2",
     "urllib3>=1.25.8",
     "loguru>=0.5.3",
-    "influxdb>=5.3.1",
+    "influxdb-client>=1.40.0",
     "pyperclip>=1.8.2",
     "terminal-layout>=2.1.3",
 ]

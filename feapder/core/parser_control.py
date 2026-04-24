@@ -476,11 +476,11 @@ class ParserControl(threading.Thread):
 
     def record_download_status(self, status, spider):
         """
-        记录html等文档下载状态
+        记录下载/解析状态
         @return:
         """
 
-        metrics.emit_counter(f"{spider}:{status}", 1, classify="document")
+        metrics.emit_download(spider=spider, parser=spider, status=status)
 
     def stop(self):
         self._thread_stop = True

@@ -46,7 +46,7 @@ class AirSpider(BaseParser, TailThread):
         )
 
         self._stop_spider = False
-        metrics.init(**setting.METRICS_OTHER_ARGS)
+        metrics.init(spider=self.name, **setting.METRICS_OTHER_ARGS)
 
     def distribute_task(self):
         for request in self.start_requests():

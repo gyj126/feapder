@@ -244,17 +244,25 @@ os.environ["LOGURU_FORMAT"] = (
 )
 OTHERS_LOG_LEVAL = "ERROR"  # 第三方库的log等级
 
-# 打点监控 influxdb 配置
-INFLUXDB_HOST = os.getenv("INFLUXDB_HOST", "localhost")
-INFLUXDB_PORT = int(os.getenv("INFLUXDB_PORT", 8086))
-INFLUXDB_UDP_PORT = int(os.getenv("INFLUXDB_UDP_PORT", 8089))
-INFLUXDB_USER = os.getenv("INFLUXDB_USER")
-INFLUXDB_PASSWORD = os.getenv("INFLUXDB_PASSWORD")
-INFLUXDB_DATABASE = os.getenv("INFLUXDB_DB")
-# 监控数据存储的表名，爬虫管理系统上会以task_id命名
-INFLUXDB_MEASUREMENT = "task_" + os.getenv("TASK_ID") if os.getenv("TASK_ID") else None
-# 打点监控其他参数，若这里也配置了influxdb的参数, 则会覆盖外面的配置
-METRICS_OTHER_ARGS = dict(retention_policy_duration="180d", emit_interval=60)
+# 打点监控 InfluxDB 2.x 配置
+INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
+INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
+INFLUXDB_ORG = os.getenv("INFLUXDB_ORG")
+INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "feapder")
+# 是否启用打点监控，默认根据是否配置了 token 来判断
+INFLUXDB_ENABLE = bool(INFLUXDB_TOKEN)
+# 公共 tag，会附加到每一个数据点上
+METRICS_DEFAULT_TAGS = {}
+# 是否将 hostname 作为 tag
+METRICS_ADD_HOSTNAME = False
+# 打点最大间隔（秒）
+METRICS_EMIT_INTERVAL = 10
+# 打点的批次大小
+METRICS_BATCH_SIZE = 500
+# 是否打印调试日志
+METRICS_DEBUG = False
+# 打点监控其他参数，会传递给 MetricsEmitter
+METRICS_OTHER_ARGS = dict()
 
 ############# 导入用户自定义的setting #############
 try:

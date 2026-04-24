@@ -75,7 +75,7 @@ class GoldUserPool(UserPoolInterface):
         self.__sycn_users_info()
 
     def __init_metrics(self):
-        metrics.init(**setting.METRICS_OTHER_ARGS)
+        metrics.init(spider=self._tab_user_pool, **setting.METRICS_OTHER_ARGS)
 
     def __sync_users_base_info(self):
         # 本地同步基本信息到redis, 注 只能在初始化函数内同步
@@ -288,4 +288,6 @@ class GoldUserPool(UserPoolInterface):
                 time.sleep(1)
 
     def record_user_status(self, user_id: str, status: GoldUserStatus):
-        metrics.emit_counter(user_id, 1, classify=f"users_{status.value}")
+        metrics.emit_user(
+            spider=self._tab_user_pool, user_id=user_id, status=status.value
+        )

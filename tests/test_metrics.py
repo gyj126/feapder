@@ -2,51 +2,71 @@ import asyncio
 
 from feapder.utils import metrics
 
-# 初始化打点系统
 metrics.init(
-    influxdb_host="localhost",
-    influxdb_port="8086",
-    influxdb_udp_port="8089",
-    influxdb_database="feapder",
-    influxdb_user="***",
-    influxdb_password="***",
-    influxdb_measurement="test_metrics",
+    url="http://localhost:8086",
+    token="my-token",
+    org="feapder",
+    bucket="feapder",
+    spider="test_metrics",
     debug=True,
 )
 
 
-async def test_counter_async():
-    for i in range(100):
-        await metrics.aemit_counter("total count", count=100, classify="test5")
-        for j in range(100):
-            await metrics.aemit_counter("key", count=1, classify="test5")
+async def test_download_async():
+    for _ in range(100):
+        await metrics.aemit_download(
+            parser="demo", status="download_total", count=100
+        )
+        for _ in range(100):
+            await metrics.aemit_download(
+                parser="demo", status="download_success", count=1
+            )
 
 
-def test_counter():
-    for i in range(100):
-        metrics.emit_counter("total count", count=100, classify="test5")
-        for j in range(100):
-            metrics.emit_counter("key", count=1, classify="test5")
+def test_download():
+    for _ in range(100):
+        metrics.emit_download(parser="demo", status="download_total", count=100)
+        for _ in range(100):
+            metrics.emit_download(parser="demo", status="download_success", count=1)
 
 
-def test_store():
-    metrics.emit_store("total", 100, classify="cookie_count")
+def test_item():
+    for _ in range(10):
+        metrics.emit_item(table="test_table", count=100)
+        for field in ("title", "url", "content"):
+            metrics.emit_item(table="test_table", field=field, count=80)
 
 
-def test_time():
-    metrics.emit_timer("total", 100, classify="time")
+def test_proxy():
+    metrics.emit_proxy(event="pull", count=10)
+    metrics.emit_proxy(event="use", count=100)
+    metrics.emit_proxy(event="invalid", count=2)
 
 
-def test_any():
-    metrics.emit_any(
-        tags={"_key": "total", "_type": "any"}, fields={"_value": 100}, classify="time"
-    )
+def test_user():
+    metrics.emit_user(user_id="user_1", status="success")
+    metrics.emit_user(user_id="user_1", status="overdue")
+
+
+def test_custom_counter():
+    metrics.emit_custom("api_call", count=10, tags={"endpoint": "/login"})
+
+
+def test_custom_value():
+    metrics.emit_custom("queue_size", value=128)
+
+
+def test_custom_duration():
+    metrics.emit_custom("render_time", duration=1.23)
 
 
 if __name__ == "__main__":
-    asyncio.run(test_counter_async())
-    test_counter_async()
-    test_store()
-    test_time()
-    test_any()
+    asyncio.run(test_download_async())
+    test_download()
+    test_item()
+    test_proxy()
+    test_user()
+    test_custom_counter()
+    test_custom_value()
+    test_custom_duration()
     metrics.close()

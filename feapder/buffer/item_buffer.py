@@ -425,8 +425,9 @@ class ItemBuffer(threading.Thread):
         for data in datas:
             total_count += 1
             for k, v in data.items():
-                metrics.emit_counter(k, int(bool(v)), classify=table)
-        metrics.emit_counter("total count", total_count, classify=table)
+                if v:
+                    metrics.emit_item(spider=self._redis_key, table=table, field=k)
+        metrics.emit_item(spider=self._redis_key, table=table, count=total_count)
 
     def close(self):
         # 调用pipeline的close方法

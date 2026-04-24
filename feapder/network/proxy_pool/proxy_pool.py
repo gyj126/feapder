@@ -46,12 +46,12 @@ class ProxyPool(BaseProxyPool):
                 proxies = self.pull_proxies()
                 for proxy in proxies:
                     self.proxy_queue.put_nowait(proxy)
-                    metrics.emit_counter("total", 1, classify="proxy")
+                    metrics.emit_proxy(event="pull")
 
             proxy = self.proxy_queue.get_nowait()
             self.proxy_queue.put_nowait(proxy)
 
-            metrics.emit_counter("used_times", 1, classify="proxy")
+            metrics.emit_proxy(event="use")
 
             return self.format_proxy(proxy)
         except Exception as e:
@@ -66,4 +66,4 @@ class ProxyPool(BaseProxyPool):
         """
         if proxy in self.proxy_queue.queue:
             self.proxy_queue.queue.remove(proxy)
-            metrics.emit_counter("invalid", 1, classify="proxy")
+            metrics.emit_proxy(event="invalid")
