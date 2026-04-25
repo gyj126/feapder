@@ -416,18 +416,14 @@ class ItemBuffer(threading.Thread):
 
     def metric_datas(self, table, datas):
         """
-        打点 记录总条数及每个key情况
+        打点 仅记录每张表入库的总条数
         @param table: 表名
         @param datas: 数据 列表
         @return:
         """
-        total_count = 0
-        for data in datas:
-            total_count += 1
-            for k, v in data.items():
-                if v:
-                    metrics.emit_item(spider=self._redis_key, table=table, field=k)
-        metrics.emit_item(spider=self._redis_key, table=table, count=total_count)
+        if not datas:
+            return
+        metrics.emit_item(spider=self._redis_key, table=table, count=len(datas))
 
     def close(self):
         # 调用pipeline的close方法

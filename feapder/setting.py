@@ -249,16 +249,18 @@ INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 INFLUXDB_ORG = os.getenv("INFLUXDB_ORG")
 INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "feapder")
-# 是否启用打点监控，默认根据是否配置了 token 来判断
-INFLUXDB_ENABLE = bool(INFLUXDB_TOKEN)
+# 是否启用打点监控；默认 False，由用户在自己的 setting.py 中显式置为 True
+INFLUXDB_ENABLE = False
 # 公共 tag，会附加到每一个数据点上
 METRICS_DEFAULT_TAGS = {}
 # 是否将 hostname 作为 tag
 METRICS_ADD_HOSTNAME = False
-# 打点最大间隔（秒）
+# 后台 flush 间隔（秒），传递给 InfluxDB WriteOptions.flush_interval
 METRICS_EMIT_INTERVAL = 10
-# 打点的批次大小
+# 单批写入最大点数，传递给 InfluxDB WriteOptions.batch_size
 METRICS_BATCH_SIZE = 500
+# 进程级 runtime 指标采样间隔（秒），<=0 关闭
+METRICS_RUNTIME_INTERVAL = 5
 # 是否打印调试日志
 METRICS_DEBUG = False
 # 打点监控其他参数，会传递给 MetricsEmitter

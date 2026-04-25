@@ -288,6 +288,4 @@ class GoldUserPool(UserPoolInterface):
                 time.sleep(1)
 
     def record_user_status(self, user_id: str, status: GoldUserStatus):
-        metrics.emit_user(
-            spider=self._tab_user_pool, user_id=user_id, status=status.value
-        )
+        metrics.emit_user(spider=self._tab_user_pool, status=status.value)

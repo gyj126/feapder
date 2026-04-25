@@ -3,52 +3,175 @@
 基于 InfluxDB 2.x 的打点监控模块
 
 设计要点：
-- 使用 influxdb-client 官方 2.x 客户端（url / token / org / bucket）
-- 按业务场景拆分 measurement：feapder_download / feapder_item / feapder_proxy / feapder_user / feapder_custom
-- counter 类型同 key 自动累加，timer 类型用纳秒级时间戳错位避免覆盖
-- 进程内单例 emitter，多进程下按 pid 重新初始化
+- 直接复用 influxdb-client 官方 2.x 客户端 + 非同步批量 WriteOptions
+- 按业务场景拆分 measurement: feapder_download / feapder_item / feapder_proxy
+  / feapder_user / feapder_runtime / feapder_custom
+- counter 类型按"秒"在内存中聚合，同 measurement+tags+秒 自动累加为单点，
+  其余类型直接交给 write_api 异步入队
+- 全部对外 emit_* 函数被 _safe 包裹，打点异常不影响业务流程
+- 进程内单例 emitter；fork 后子进程自动重置；init() 末尾注册 atexit 兜底关闭
 """
 
-import concurrent.futures
+import asyncio
+import atexit
+import functools
+import itertools
 import os
-import queue
 import random
 import socket
-import string
 import threading
 import time
-from collections import Counter
 from typing import Any, Optional
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
-from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.client.write_api import WriteOptions
 
 from feapder import setting
 from feapder.utils.log import log
-from feapder.utils.tools import aio_wrap, ensure_float, ensure_int
+from feapder.utils.tools import ensure_float, ensure_int
 
-# measurement 常量
 MEASUREMENT_DOWNLOAD = "feapder_download"
 MEASUREMENT_ITEM = "feapder_item"
 MEASUREMENT_PROXY = "feapder_proxy"
 MEASUREMENT_USER = "feapder_user"
+MEASUREMENT_RUNTIME = "feapder_runtime"
 MEASUREMENT_CUSTOM = "feapder_custom"
 
-# 内部 tag 标识，仅用于 emitter 内部聚合，不会写入 InfluxDB
-_INTERNAL_TYPE_KEY = "__type__"
 _TYPE_COUNTER = "counter"
 _TYPE_STORE = "store"
 _TYPE_TIMER = "timer"
 
+# 进程内单调自增序号，用作 ns 时间戳后缀，避免同 series 同纳秒被覆盖
+_seq = itertools.count()
+
+
+def _next_ns_offset() -> int:
+    return next(_seq) % 1_000_000_000
+
+
 _inited_pid: Optional[int] = None
-# 协程打点专用线程池，fork 后的子进程不应继承
-_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="metrics"
-)
+_emitter: Optional["MetricsEmitter"] = None
+_default_spider: Optional[str] = None
+
+
+def _safe(fn):
+    """打点装饰器，吞没异常仅记日志，避免影响业务流程"""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            log.warning(f"打点失败 {fn.__name__}: {e}")
+
+    return wrapper
+
+
+class _CounterAggregator:
+    """秒级 counter 聚合器：同 measurement+tags+秒 在内存中累加，定时 flush"""
+
+    def __init__(self, flush_callback, interval: int = 1):
+        self._buckets: dict = {}
+        self._lock = threading.Lock()
+        self._flush_callback = flush_callback
+        self._interval = max(1, int(interval))
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._loop, name="metrics-counter-flush", daemon=True
+        )
+        self._thread.start()
+
+    def add(self, measurement: str, tags: dict, fields: dict, ts_seconds: int):
+        frozen = tuple(sorted(tags.items()))
+        key = (measurement, frozen, ts_seconds)
+        with self._lock:
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                self._buckets[key] = {"tags": dict(tags), "fields": dict(fields)}
+            else:
+                for fk, fv in fields.items():
+                    bucket["fields"][fk] = bucket["fields"].get(fk, 0) + fv
+
+    def _loop(self):
+        while not self._stop.wait(self._interval):
+            try:
+                self.flush()
+            except Exception as e:
+                log.warning(f"counter 聚合 flush 异常: {e}")
+
+    def flush(self, force: bool = False):
+        now_seconds = int(time.time())
+        ready = []
+        with self._lock:
+            for key in list(self._buckets.keys()):
+                _, _, ts_seconds = key
+                if force or ts_seconds < now_seconds:
+                    ready.append((key, self._buckets.pop(key)))
+        if ready:
+            self._flush_callback(ready)
+
+    def stop(self):
+        self._stop.set()
+        try:
+            self._thread.join(timeout=2)
+        except Exception:
+            pass
+        self.flush(force=True)
+
+
+class _RuntimeSampler:
+    """后台进程指标采样：cpu_percent / memory_rss_mb / num_threads"""
+
+    def __init__(self, emit_callback, interval: int):
+        self._emit_callback = emit_callback
+        self._interval = max(1, int(interval))
+        self._stop = threading.Event()
+        self._proc = None
+        try:
+            import psutil
+
+            self._proc = psutil.Process()
+            self._proc.cpu_percent(None)
+        except Exception as e:
+            log.warning(f"runtime 采样初始化失败，将跳过: {e}")
+            return
+        self._thread = threading.Thread(
+            target=self._loop, name="metrics-runtime", daemon=True
+        )
+        self._thread.start()
+
+    def _loop(self):
+        while not self._stop.wait(self._interval):
+            try:
+                self._sample_once()
+            except Exception as e:
+                log.warning(f"runtime 采样异常: {e}")
+
+    def _sample_once(self):
+        proc = self._proc
+        if proc is None:
+            return
+        cpu = proc.cpu_percent(None)
+        mem_mb = proc.memory_info().rss / 1024 / 1024
+        threads = proc.num_threads()
+        self._emit_callback(
+            cpu_percent=float(cpu),
+            memory_rss_mb=float(mem_mb),
+            num_threads=int(threads),
+        )
+
+    def stop(self):
+        self._stop.set()
+        if self._proc is None:
+            return
+        try:
+            self._thread.join(timeout=2)
+        except Exception:
+            pass
 
 
 class MetricsEmitter:
-    """InfluxDB 2.x 打点缓冲与批量写入"""
+    """InfluxDB 2.x 异步批量打点客户端"""
 
     def __init__(
         self,
@@ -58,207 +181,195 @@ class MetricsEmitter:
         *,
         batch_size: int = 500,
         emit_interval: int = 10,
-        max_points: int = 10240,
-        max_timer_seq: int = 0,
         ratio: float = 1.0,
         debug: bool = False,
         add_hostname: bool = False,
         default_tags: Optional[dict] = None,
+        runtime_interval: int = 5,
+        **_legacy,
     ):
         """
         Args:
             client: InfluxDB 2.x 客户端
             bucket: 写入的 bucket
             org: 所属 org
-            batch_size: 每次 flush 写入的最大点数
-            emit_interval: 最长打点间隔（秒），到点强制 flush
-            max_points: 本地缓冲区最大累计点数
-            max_timer_seq: 单位时间内同 key 的 timer 最大数量，0 表示不限制
+            batch_size: 单批最大写入点数
+            emit_interval: 后台 flush 间隔（秒）
             ratio: store / timer 类型采样率
             debug: 是否打印调试日志
             add_hostname: 是否将 hostname 作为 tag
             default_tags: 公共 tag，会附加到每一个数据点上
+            runtime_interval: 进程级 runtime 指标采样间隔（秒），<=0 关闭
         """
+        if _legacy:
+            log.warning(f"MetricsEmitter 收到未识别参数将被忽略: {list(_legacy.keys())}")
         self._client = client
         self._bucket = bucket
         self._org = org
-        self._write_api = client.write_api(write_options=SYNCHRONOUS)
-
-        self._pending_points: queue.Queue = queue.Queue()
-        self._batch_size = batch_size
-        self._emit_interval = emit_interval
-        self._max_points = max_points
-        self._max_timer_seq = max_timer_seq
         self._ratio = ratio
         self._debug = debug
         self._add_hostname = add_hostname
         self._default_tags = default_tags or {}
         self._hostname = socket.gethostname()
 
-        self._lock = threading.Lock()
-        self._last_emit_ts = time.time()
+        self._write_api = client.write_api(
+            write_options=WriteOptions(
+                batch_size=batch_size,
+                flush_interval=max(1, emit_interval) * 1000,
+                jitter_interval=2000,
+                retry_interval=1000,
+                max_retries=3,
+                exponential_base=2,
+            ),
+            success_callback=self._on_write_success,
+            error_callback=self._on_write_error,
+            retry_callback=self._on_write_retry,
+        )
 
-    def make_point(
-        self,
-        measurement: str,
-        tags: Optional[dict] = None,
-        fields: Optional[dict] = None,
-        timestamp: Optional[int] = None,
-        point_type: str = _TYPE_COUNTER,
-    ) -> dict:
-        """
-        构造内部点结构，时间戳默认秒级
-        """
-        assert measurement, "measurement 不能为空"
-        merged_tags = dict(self._default_tags)
+        self._counter_agg = _CounterAggregator(
+            flush_callback=self._flush_counters, interval=1
+        )
+
+        if runtime_interval and runtime_interval > 0:
+            self._runtime_sampler = _RuntimeSampler(
+                emit_callback=self._emit_runtime, interval=runtime_interval
+            )
+        else:
+            self._runtime_sampler = None
+
+    def _on_write_success(self, conf, data):
+        if self._debug:
+            log.info(f"打点写入成功 size={len(data)}")
+
+    def _on_write_error(self, conf, data, exception):
+        log.warning(f"打点写入失败: {exception}")
+
+    def _on_write_retry(self, conf, data, exception):
+        if self._debug:
+            log.info(f"打点写入重试: {exception}")
+
+    def _merge_tags(self, tags: Optional[dict]) -> dict:
+        merged = dict(self._default_tags)
         if tags:
             for k, v in tags.items():
                 if v is None or v == "":
                     continue
-                merged_tags[k] = str(v)
-        if self._add_hostname and "host" not in merged_tags:
-            merged_tags["host"] = self._hostname
+                merged[k] = str(v)
+        if self._add_hostname and "host" not in merged:
+            merged["host"] = self._hostname
+        return merged
 
-        merged_tags[_INTERNAL_TYPE_KEY] = point_type
+    def emit_counter(
+        self,
+        measurement: str,
+        tags: Optional[dict],
+        fields: dict,
+        timestamp: Optional[int] = None,
+    ):
+        merged_tags = self._merge_tags(tags)
+        ts_seconds = int(timestamp) if timestamp is not None else int(time.time())
+        self._counter_agg.add(measurement, merged_tags, fields, ts_seconds)
 
-        return dict(
-            measurement=measurement,
-            tags=merged_tags,
-            fields=fields or {},
-            time=timestamp if timestamp is not None else int(time.time()),
-        )
-
-    def emit(self, point: Optional[dict] = None, force: bool = False):
-        """
-        加入待发送队列，按需触发 flush
-        """
-        if point is not None:
-            self._pending_points.put(point)
-
-        if not (
-            force
-            or self._pending_points.qsize() >= self._max_points
-            or time.time() - self._last_emit_ts > self._emit_interval
-        ):
+    def emit_timer(
+        self,
+        measurement: str,
+        tags: Optional[dict],
+        fields: dict,
+        timestamp: Optional[int] = None,
+    ):
+        if self._ratio < 1.0 and random.random() > self._ratio:
             return
+        merged_tags = self._merge_tags(tags)
+        self._write_point(measurement, merged_tags, fields, self._timestamp_ns(timestamp))
 
-        with self._lock:
-            points = self._drain_and_aggregate(force=force)
-            if not points:
-                return
-            try:
-                self._write_api.write(
-                    bucket=self._bucket,
-                    org=self._org,
-                    record=points,
-                    write_precision=WritePrecision.NS,
-                )
-                if self._debug:
-                    log.info(f"打点写入 {len(points)} 条")
-            except Exception as e:
-                log.exception(f"打点写入失败: {e}")
-            self._last_emit_ts = time.time()
+    def emit_store(
+        self,
+        measurement: str,
+        tags: Optional[dict],
+        fields: dict,
+        timestamp: Optional[int] = None,
+    ):
+        if self._ratio < 1.0 and random.random() > self._ratio:
+            return
+        merged_tags = self._merge_tags(tags)
+        self._write_point(measurement, merged_tags, fields, self._timestamp_ns(timestamp))
+
+    @staticmethod
+    def _timestamp_ns(timestamp: Optional[int]) -> int:
+        if timestamp is None:
+            return time.time_ns() + _next_ns_offset()
+        if timestamp < 10**12:
+            return int(timestamp) * 1_000_000_000 + _next_ns_offset()
+        if timestamp < 10**15:
+            return int(timestamp) * 1_000_000 + _next_ns_offset()
+        if timestamp < 10**18:
+            return int(timestamp) * 1_000 + _next_ns_offset()
+        return int(timestamp) + _next_ns_offset()
+
+    def _write_point(self, measurement: str, tags: dict, fields: dict, ts_ns: int):
+        point = Point(measurement).time(ts_ns, WritePrecision.NS)
+        for tk, tv in tags.items():
+            point = point.tag(tk, tv)
+        for fk, fv in fields.items():
+            point = point.field(fk, fv)
+        try:
+            self._write_api.write(bucket=self._bucket, org=self._org, record=point)
+        except Exception as e:
+            log.warning(f"打点入队失败: {e}")
+
+    def _flush_counters(self, ready: list):
+        points = []
+        for (measurement, _frozen, ts_seconds), bucket in ready:
+            ts_ns = ts_seconds * 1_000_000_000 + _next_ns_offset()
+            point = Point(measurement).time(ts_ns, WritePrecision.NS)
+            for tk, tv in bucket["tags"].items():
+                point = point.tag(tk, tv)
+            for fk, fv in bucket["fields"].items():
+                point = point.field(fk, fv)
+            points.append(point)
+        if not points:
+            return
+        try:
+            self._write_api.write(bucket=self._bucket, org=self._org, record=points)
+        except Exception as e:
+            log.warning(f"counter 批量入队失败: {e}")
+
+    def _emit_runtime(self, **fields):
+        self.emit_store(MEASUREMENT_RUNTIME, tags=None, fields=fields)
 
     def flush(self):
-        if self._debug:
-            log.info(f"flush 打点队列，剩余 {self._pending_points.qsize()} 条")
-        self.emit(force=True)
+        try:
+            self._counter_agg.flush(force=True)
+        except Exception as e:
+            log.warning(f"counter flush 异常: {e}")
+        try:
+            self._write_api.flush()
+        except Exception as e:
+            log.warning(f"write_api flush 异常: {e}")
 
     def close(self):
         try:
-            self.flush()
+            self._counter_agg.stop()
         except Exception as e:
-            log.exception(f"flush 异常: {e}")
+            log.warning(f"counter aggregator 关闭异常: {e}")
+        if self._runtime_sampler is not None:
+            try:
+                self._runtime_sampler.stop()
+            except Exception as e:
+                log.warning(f"runtime sampler 关闭异常: {e}")
         try:
             self._write_api.close()
         except Exception as e:
-            log.exception(f"关闭 write_api 异常: {e}")
+            log.warning(f"write_api 关闭异常: {e}")
         try:
             self._client.close()
         except Exception as e:
-            log.exception(f"关闭 InfluxDB 客户端异常: {e}")
-
-    def _drain_and_aggregate(self, force: bool = False) -> list:
-        """
-        从 pending 队列取出点并按类型聚合，返回 influxdb-client Point 列表
-        """
-        raw_points = []
-        while len(raw_points) < self._max_points or force:
-            try:
-                raw_points.append(self._pending_points.get_nowait())
-            except queue.Empty:
-                break
-
-        if not raw_points:
-            return []
-
-        # 同 key 累加 counter，timer 通过纳秒错位避免覆盖
-        counters: dict = {}
-        timer_seqs: Counter = Counter()
-        result_points: list = []
-
-        for point in raw_points:
-            point_type = point["tags"].pop(_INTERNAL_TYPE_KEY, _TYPE_COUNTER)
-            tagset = self._tagset(point)
-
-            if point_type == _TYPE_COUNTER:
-                if tagset in counters:
-                    for fk, fv in point["fields"].items():
-                        counters[tagset]["fields"][fk] = (
-                            counters[tagset]["fields"].get(fk, 0) + fv
-                        )
-                else:
-                    counters[tagset] = point
-            elif point_type == _TYPE_TIMER:
-                if self._max_timer_seq and timer_seqs[tagset] > self._max_timer_seq:
-                    continue
-                if self._ratio < 1.0 and random.random() > self._ratio:
-                    continue
-                point["time"] = self._to_ns(point["time"], offset=timer_seqs[tagset])
-                timer_seqs[tagset] += 1
-                result_points.append(point)
-            else:
-                if self._ratio < 1.0 and random.random() > self._ratio:
-                    continue
-                point["time"] = self._to_ns(point["time"])
-                result_points.append(point)
-
-        for point in counters.values():
-            point["time"] = self._to_ns(point["time"])
-            result_points.append(point)
-
-        return [self._to_influx_point(p) for p in result_points]
-
-    @staticmethod
-    def _tagset(point: dict) -> str:
-        return f"{point['measurement']}-{sorted(point['tags'].items())}-{point['time']}"
-
-    @staticmethod
-    def _to_ns(timestamp: int, offset: int = 0) -> int:
-        """
-        将秒级时间戳补足到 19 位纳秒级，offset 用于 timer 错位
-        """
-        if timestamp >= 10**18:
-            return timestamp + offset
-        ts_str = str(timestamp)
-        pad_len = 19 - len(ts_str)
-        if pad_len <= 0:
-            return timestamp + offset
-        random_str = "".join(random.sample(string.digits, pad_len))
-        return int(ts_str + random_str) + offset
-
-    @staticmethod
-    def _to_influx_point(raw: dict) -> Point:
-        point = Point(raw["measurement"]).time(raw["time"], WritePrecision.NS)
-        for tk, tv in raw["tags"].items():
-            point = point.tag(tk, tv)
-        for fk, fv in raw["fields"].items():
-            point = point.field(fk, fv)
-        return point
+            log.warning(f"InfluxDB 客户端关闭异常: {e}")
 
 
-_emitter: Optional[MetricsEmitter] = None
-_default_spider: Optional[str] = None
+def _is_enabled() -> bool:
+    """打点开关：默认关闭，仅当用户在 setting.py 中显式 INFLUXDB_ENABLE=True 才启用"""
+    return getattr(setting, "INFLUXDB_ENABLE", False) is True
 
 
 def init(
@@ -273,6 +384,7 @@ def init(
     emit_interval: Optional[int] = None,
     debug: Optional[bool] = None,
     add_hostname: Optional[bool] = None,
+    runtime_interval: Optional[int] = None,
     timeout: int = 10000,
     **kwargs,
 ):
@@ -286,15 +398,18 @@ def init(
         bucket: 写入的 bucket，默认读取 setting.INFLUXDB_BUCKET
         spider: 爬虫名，会作为 default tag 写入每个点
         default_tags: 公共 tag
-        batch_size: 单次写入最大点数
-        emit_interval: 最长打点间隔（秒）
+        batch_size: 单批写入最大点数
+        emit_interval: 后台 flush 间隔（秒）
         debug: 是否输出调试日志
         add_hostname: 是否将 hostname 作为 tag
+        runtime_interval: 进程级 runtime 指标采样间隔（秒），<=0 关闭
         timeout: 客户端超时时间（毫秒）
         **kwargs: 透传给 MetricsEmitter 的其他参数
     """
     global _inited_pid, _emitter, _default_spider
 
+    if not _is_enabled():
+        return
     if _inited_pid == os.getpid():
         return
 
@@ -302,11 +417,17 @@ def init(
     token = token or setting.INFLUXDB_TOKEN
     org = org or setting.INFLUXDB_ORG
     bucket = bucket or setting.INFLUXDB_BUCKET
-
     if not (url and token and org and bucket):
         return
 
-    merged_tags = dict(setting.METRICS_DEFAULT_TAGS)
+    if _emitter is not None:
+        try:
+            _emitter.close()
+        except Exception as e:
+            log.warning(f"旧 emitter 关闭异常: {e}")
+        _emitter = None
+
+    merged_tags = dict(getattr(setting, "METRICS_DEFAULT_TAGS", {}))
     if default_tags:
         merged_tags.update(default_tags)
     if spider:
@@ -319,24 +440,39 @@ def init(
         log.error(f"初始化 InfluxDB 客户端失败: {e}")
         return
 
-    _emitter = MetricsEmitter(
-        client=client,
-        bucket=bucket,
-        org=org,
-        batch_size=batch_size if batch_size is not None else setting.METRICS_BATCH_SIZE,
-        emit_interval=(
-            emit_interval
-            if emit_interval is not None
-            else setting.METRICS_EMIT_INTERVAL
-        ),
-        debug=debug if debug is not None else setting.METRICS_DEBUG,
-        add_hostname=(
-            add_hostname if add_hostname is not None else setting.METRICS_ADD_HOSTNAME
-        ),
-        default_tags=merged_tags,
-        **kwargs,
-    )
+    try:
+        _emitter = MetricsEmitter(
+            client=client,
+            bucket=bucket,
+            org=org,
+            batch_size=batch_size if batch_size is not None else setting.METRICS_BATCH_SIZE,
+            emit_interval=(
+                emit_interval
+                if emit_interval is not None
+                else setting.METRICS_EMIT_INTERVAL
+            ),
+            debug=debug if debug is not None else setting.METRICS_DEBUG,
+            add_hostname=(
+                add_hostname if add_hostname is not None else setting.METRICS_ADD_HOSTNAME
+            ),
+            default_tags=merged_tags,
+            runtime_interval=(
+                runtime_interval
+                if runtime_interval is not None
+                else getattr(setting, "METRICS_RUNTIME_INTERVAL", 5)
+            ),
+            **kwargs,
+        )
+    except Exception as e:
+        log.error(f"初始化 MetricsEmitter 失败: {e}")
+        try:
+            client.close()
+        except Exception:
+            pass
+        return
+
     _inited_pid = os.getpid()
+    atexit.register(close)
     log.info(f"打点监控初始化成功 url={url} bucket={bucket}")
 
 
@@ -344,6 +480,20 @@ def _resolve_spider(spider: Optional[str]) -> Optional[str]:
     return spider or _default_spider
 
 
+def _reset_after_fork():
+    """fork 后子进程重置全局状态，避免继承父进程的连接 / 线程"""
+    global _inited_pid, _emitter
+    _inited_pid = None
+    _emitter = None
+
+
+try:
+    os.register_at_fork(after_in_child=_reset_after_fork)
+except AttributeError:
+    pass
+
+
+@_safe
 def emit_download(
     spider: Optional[str] = None,
     parser: Optional[str] = None,
@@ -351,118 +501,60 @@ def emit_download(
     count: int = 1,
     timestamp: Optional[int] = None,
 ):
-    """
-    下载/解析打点
-
-    Args:
-        spider: 爬虫名
-        parser: parser 名
-        status: download_total / download_success / download_exception / parser_exception
-        count: 计数
-        timestamp: 时间戳，默认当前时间
-    """
+    """下载/解析事件计数"""
     if _emitter is None:
         return
-    tags = {
-        "spider": _resolve_spider(spider),
-        "parser": parser,
-        "status": status,
-    }
+    tags = {"spider": _resolve_spider(spider), "parser": parser, "status": status}
     fields = {"count": ensure_int(count)}
-    point = _emitter.make_point(
-        MEASUREMENT_DOWNLOAD, tags, fields, timestamp, _TYPE_COUNTER
-    )
-    _emitter.emit(point)
+    _emitter.emit_counter(MEASUREMENT_DOWNLOAD, tags, fields, timestamp)
 
 
+@_safe
 def emit_item(
     spider: Optional[str] = None,
     table: str = "",
-    field: Optional[str] = None,
     count: int = 1,
     timestamp: Optional[int] = None,
 ):
-    """
-    数据入库打点
-
-    Args:
-        spider: 爬虫名
-        table: 表名
-        field: 字段名；不传或传空时用 __total__ 表示总条数
-        count: 计数
-        timestamp: 时间戳
-    """
+    """入库总条数事件计数"""
     if _emitter is None:
         return
-    tags = {
-        "spider": _resolve_spider(spider),
-        "table": table,
-        "field": field if field else "__total__",
-    }
+    tags = {"spider": _resolve_spider(spider), "table": table}
     fields = {"count": ensure_int(count)}
-    point = _emitter.make_point(
-        MEASUREMENT_ITEM, tags, fields, timestamp, _TYPE_COUNTER
-    )
-    _emitter.emit(point)
+    _emitter.emit_counter(MEASUREMENT_ITEM, tags, fields, timestamp)
 
 
+@_safe
 def emit_proxy(
     spider: Optional[str] = None,
     event: str = "",
     count: int = 1,
     timestamp: Optional[int] = None,
 ):
-    """
-    代理池打点
-
-    Args:
-        spider: 爬虫名
-        event: pull / use / invalid
-        count: 计数
-        timestamp: 时间戳
-    """
+    """代理池事件计数"""
     if _emitter is None:
         return
-    tags = {
-        "spider": _resolve_spider(spider),
-        "event": event,
-    }
+    tags = {"spider": _resolve_spider(spider), "event": event}
     fields = {"count": ensure_int(count)}
-    point = _emitter.make_point(
-        MEASUREMENT_PROXY, tags, fields, timestamp, _TYPE_COUNTER
-    )
-    _emitter.emit(point)
+    _emitter.emit_counter(MEASUREMENT_PROXY, tags, fields, timestamp)
 
 
+@_safe
 def emit_user(
     spider: Optional[str] = None,
-    user_id: str = "",
     status: str = "",
     count: int = 1,
     timestamp: Optional[int] = None,
 ):
-    """
-    账号池打点
-
-    Args:
-        spider: 爬虫名
-        user_id: 账号 id
-        status: 账号状态（如 GoldUserStatus.value）
-        count: 计数
-        timestamp: 时间戳
-    """
+    """账号池事件计数（仅按 status 维度聚合）"""
     if _emitter is None:
         return
-    tags = {
-        "spider": _resolve_spider(spider),
-        "user_id": user_id,
-        "status": status,
-    }
+    tags = {"spider": _resolve_spider(spider), "status": status}
     fields = {"count": ensure_int(count)}
-    point = _emitter.make_point(MEASUREMENT_USER, tags, fields, timestamp, _TYPE_COUNTER)
-    _emitter.emit(point)
+    _emitter.emit_counter(MEASUREMENT_USER, tags, fields, timestamp)
 
 
+@_safe
 def emit_custom(
     metric: str,
     *,
@@ -479,8 +571,8 @@ def emit_custom(
 
     Args:
         metric: 指标名，作为 tag
-        count: 计数（counter 语义，可累加）
-        value: 任意数值（store 语义，会被覆盖）
+        count: 计数（counter 语义，按秒累加）
+        value: 任意数值（store 语义）
         duration: 时长（timer 语义，每个点独立保留）
         spider: 爬虫名
         tags: 额外的 tag
@@ -491,50 +583,61 @@ def emit_custom(
         return
 
     merged_tags = dict(tags or {})
-    merged_tags["spider"] = _resolve_spider(spider) or merged_tags.get("spider")
+    if spider:
+        merged_tags["spider"] = spider
+    elif "spider" not in merged_tags and _default_spider:
+        merged_tags["spider"] = _default_spider
     merged_tags["metric"] = metric
 
     if count is not None:
-        fields = {"count": ensure_int(count)}
-        point_type = _TYPE_COUNTER
+        _emitter.emit_counter(
+            measurement, merged_tags, {"count": ensure_int(count)}, timestamp
+        )
     elif duration is not None:
-        fields = {"duration": ensure_float(duration)}
-        point_type = _TYPE_TIMER
+        _emitter.emit_timer(
+            measurement, merged_tags, {"duration": ensure_float(duration)}, timestamp
+        )
     elif value is not None:
-        fields = {"value": value}
-        point_type = _TYPE_STORE
+        _emitter.emit_store(measurement, merged_tags, {"value": value}, timestamp)
     else:
-        fields = {"count": 1}
-        point_type = _TYPE_COUNTER
-
-    point = _emitter.make_point(measurement, merged_tags, fields, timestamp, point_type)
-    _emitter.emit(point)
+        _emitter.emit_counter(measurement, merged_tags, {"count": 1}, timestamp)
 
 
 def flush():
-    """
-    强制 flush 本地缓冲到 InfluxDB
-    """
+    """强制 flush 本地缓冲到 InfluxDB"""
     if _emitter is None:
         return
     _emitter.flush()
 
 
 def close():
-    """
-    关闭打点系统
-    """
+    """关闭打点系统"""
     global _emitter, _inited_pid
     if _emitter is None:
         return
-    _emitter.close()
+    try:
+        _emitter.close()
+    except Exception as e:
+        log.warning(f"emitter 关闭异常: {e}")
     _emitter = None
     _inited_pid = None
 
 
-# 协程异步打点
-aemit_download = aio_wrap(executor=_executor)(emit_download)
-aemit_item = aio_wrap(executor=_executor)(emit_item)
-aemit_proxy = aio_wrap(executor=_executor)(emit_proxy)
-aemit_user = aio_wrap(executor=_executor)(emit_user)
-aemit_custom = aio_wrap(executor=_executor)(emit_custom)
+async def aemit_download(*args, **kwargs):
+    await asyncio.to_thread(emit_download, *args, **kwargs)
+
+
+async def aemit_item(*args, **kwargs):
+    await asyncio.to_thread(emit_item, *args, **kwargs)
+
+
+async def aemit_proxy(*args, **kwargs):
+    await asyncio.to_thread(emit_proxy, *args, **kwargs)
+
+
+async def aemit_user(*args, **kwargs):
+    await asyncio.to_thread(emit_user, *args, **kwargs)
+
+
+async def aemit_custom(*args, **kwargs):
+    await asyncio.to_thread(emit_custom, *args, **kwargs)

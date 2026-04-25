@@ -26,6 +26,7 @@ class ProxyPool(BaseProxyPool):
     def __init__(self, proxy_api=None, **kwargs):
         self.proxy_api = proxy_api or setting.PROXY_EXTRACT_API
         self.proxy_queue = Queue()
+        metrics.init(spider="proxy_pool", **setting.METRICS_OTHER_ARGS)
 
     def format_proxy(self, proxy):
         return {"http": "http://" + proxy, "https": "http://" + proxy}

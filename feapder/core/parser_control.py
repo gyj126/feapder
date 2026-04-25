@@ -474,13 +474,13 @@ class ParserControl(threading.Thread):
             else:
                 time.sleep(setting.SPIDER_SLEEP_TIME)
 
-    def record_download_status(self, status, spider):
+    def record_download_status(self, status, parser_name):
         """
         记录下载/解析状态
         @return:
         """
 
-        metrics.emit_download(spider=spider, parser=spider, status=status)
+        metrics.emit_download(parser=parser_name, status=status)
 
     def stop(self):
         self._thread_stop = True
