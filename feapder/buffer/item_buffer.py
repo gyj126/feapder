@@ -208,11 +208,7 @@ class ItemBuffer(threading.Thread):
             else:
                 dup_items_count += 1
 
-        log.info(
-            "待入库数据 {} 条， 重复 {} 条，实际待入库数据 {} 条".format(
-                items_count, dup_items_count, dedup_items_count
-            )
-        )
+        log.info("待入库数据 {} 条， 重复 {} 条，实际待入库数据 {} 条".format(items_count, dup_items_count, dedup_items_count))
 
         return dedup_items, dedup_items_fingerprints
 
@@ -258,16 +254,12 @@ class ItemBuffer(threading.Thread):
                     continue
 
                 if not pipeline.update_items(table, datas, update_keys=update_keys):
-                    log.error(
-                        f"{pipeline.__class__.__name__} 更新数据失败. table: {table}  items: {datas}"
-                    )
+                    log.error("{} 更新数据失败. table: {}".format(pipeline.__class__.__name__, table))
                     return False
 
             else:
                 if not pipeline.save_items(table, datas):
-                    log.error(
-                        f"{pipeline.__class__.__name__} 保存数据失败. table: {table}  items: {datas}"
-                    )
+                    log.error("{} 保存数据失败. table: {}".format(pipeline.__class__.__name__, table))
                     return False
 
         # 若是任务表, 且上面的pipeline里没mysql，则需调用mysql更新任务
@@ -275,9 +267,7 @@ class ItemBuffer(threading.Thread):
             if not self.mysql_pipeline.update_items(
                     table, datas, update_keys=update_keys
             ):
-                log.error(
-                    f"{self.mysql_pipeline.__class__.__name__} 更新数据失败. table: {table}  items: {datas}"
-                )
+                log.error("{} 更新数据失败. table: {}".format(self.mysql_pipeline.__class__.__name__, table))
                 return False
 
         self.metric_datas(table=table, datas=datas)
@@ -303,14 +293,7 @@ class ItemBuffer(threading.Thread):
             table, datas = items_dict.popitem()
             used_pipelines = self._item_pipelines.get(table)
 
-            log.debug(
-                """
-                -------------- item 批量入库 --------------
-                表名: %s
-                datas: %s
-                    """
-                % (table, tools.dumps_json(datas, indent=16))
-            )
+            log.debug("item批量入库 表名: {} datas: {}".format(table, tools.dumps_json(datas, indent=None)))
 
             if not self.__export_to_db(table, datas, used_pipelines=used_pipelines):
                 export_success = False
@@ -321,14 +304,7 @@ class ItemBuffer(threading.Thread):
             table, datas = update_items_dict.popitem()
             used_pipelines = self._item_pipelines.get(table)
 
-            log.debug(
-                """
-                -------------- item 批量更新 --------------
-                表名: %s
-                datas: %s
-                    """
-                % (table, tools.dumps_json(datas, indent=16))
-            )
+            log.debug("item批量更新 表名: {} datas: {}".format(table, tools.dumps_json(datas, indent=None)))
 
             update_keys = self._item_update_keys.get(table)
             if not self.__export_to_db(
@@ -368,11 +344,7 @@ class ItemBuffer(threading.Thread):
                     if requests:
                         self.redis_db.zrem(self._table_request, requests)
 
-                    log.error(
-                        "入库超过最大重试次数，不再重试，数据记录到redis，items:\n {}".format(
-                            tools.dumps_json(failed_items)
-                        )
-                    )
+                    log.error("入库超过最大重试次数，不再重试，数据记录到redis")
                 self.export_retry_times = 0
 
             else:
@@ -392,7 +364,6 @@ class ItemBuffer(threading.Thread):
                 if self._redis_key != "air_spider":
                     tip.append("将自动重试")
 
-                tip.append("失败items:\n {}".format(tools.dumps_json(failed_items)))
                 log.error("，".join(tip))
 
                 self.export_falied_times += 1
