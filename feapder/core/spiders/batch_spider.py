@@ -603,10 +603,10 @@ class BatchSpider(BatchParser, Scheduler):
         @result:
         """
 
-        sql = "update {task_table} set {state} = 0 where {state} != -1{task_condition}".format(
+        sql = "update {task_table} set {state} = 0 {task_condition}".format(
             task_table=self._task_table,
             state=self._task_state,
-            task_condition=self._task_condition_prefix_and,
+            task_condition=self._task_condition_prefix_where,
         )
         return self._mysqldb.update(sql)
 
