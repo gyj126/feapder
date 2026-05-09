@@ -245,9 +245,9 @@ class MyFileSpider(feapder.FileSpider):
 | `file_dedup` | None/str/FileDedup | 文件去重策略：None 不去重，`"redis"` / `"mysql"` / FileDedup 实例 |
 | `file_dedup_expire` | int | Redis 去重缓存过期时间（秒），仅 `file_dedup="redis"` 时生效 |
 | `task_state` | str | 任务状态字段名，默认 `state` |
-| `min_task_count` | int | Redis 中最少任务数，默认 10000 |
+| `min_task_count` | int | Redis 中最少任务数，默认 500 |
 | `check_task_interval` | int | 检查任务间隔（秒），默认 5 |
-| `task_limit` | int | 每次取任务数量，默认 10000 |
+| `task_limit` | int | 每次取任务数量，默认 500 |
 | `task_condition` | str | 任务筛选条件（WHERE 后的 SQL） |
 | `task_order_by` | str | 取任务排序条件 |
 | `thread_count` | int | 线程数 |
