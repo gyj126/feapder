@@ -349,7 +349,7 @@ class Scheduler(TailThread):
             total_task_count,
         ) = ParserControl.get_task_status_count()
         total_count = success_task_count + failed_task_count
-        if total_count > 0:
+        if total_count >= setting.WARNING_SUCCESS_RATE_MIN_COUNT:
             task_success_rate = success_task_count / total_count
             if task_success_rate < setting.WARNING_SUCCESS_RATE:
                 # 发送报警
