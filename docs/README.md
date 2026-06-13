@@ -12,7 +12,7 @@
 
 1. feapder是一款上手简单，功能强大的Python爬虫框架，内置AirSpider、Spider、TaskSpider、BatchSpider四种爬虫解决不同场景的需求。
 2. 支持断点续爬、监控报警、浏览器渲染、海量数据去重等功能。
-3. 更有功能强大的爬虫管理系统feaplat为其提供方便的部署及调度
+3. 内置 InfluxDB 监控打点，配合 Grafana 实现请求与数据可视化
 
 读音: `[ˈfiːpdə]`
 
@@ -23,7 +23,7 @@
 - 官方文档：https://feapder.com
 - github：https://github.com/Boris-code/feapder
 - 更新日志：https://github.com/Boris-code/feapder/releases
-- 爬虫管理系统：http://feapder.com/#/feapder_platform/feaplat
+- 监控打点：详见 [监控打点](source_code/监控打点.md)
 
 
 ## 环境要求：
@@ -111,7 +111,7 @@ FirstSpider|2021-02-09 14:55:14,620|air_spider.py|run|line:80|INFO| 无任务，
 ## 爬虫工具推荐
 
 1. 爬虫在线工具库：http://www.spidertools.cn
-2. 爬虫管理系统：http://feapder.com/#/feapder_platform/feaplat
+2. Grafana 监控仪表盘：见项目 monitoring/grafana 目录
 3. 验证码识别库：https://github.com/sml2h3/ddddocr
 
 

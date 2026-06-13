@@ -373,6 +373,14 @@ def init(
             influxdb_password,
         ]
     ):
+        missing = []
+        if not influxdb_host: missing.append("INFLUXDB_HOST")
+        if not influxdb_port: missing.append("INFLUXDB_PORT")
+        if not influxdb_udp_port: missing.append("INFLUXDB_UDP_PORT")
+        if not influxdb_database: missing.append("INFLUXDB_DATABASE")
+        if not influxdb_user: missing.append("INFLUXDB_USER")
+        if not influxdb_password: missing.append("INFLUXDB_PASSWORD")
+        log.warning(f"监控打点未启用，缺少配置: {', '.join(missing)}")
         return
 
     influxdb_client = InfluxDBClient(
@@ -397,7 +405,7 @@ def init(
                 default=set_retention_policy_default,
             )
         except Exception as e:
-            log.error("metrics init falied: {}".format(e))
+            log.error(f"监控打点初始化失败: {e}")
             return
 
     _emitter = MetricsEmitter(
@@ -409,7 +417,7 @@ def init(
         **kwargs,
     )
     _inited_pid = os.getpid()
-    log.info("metrics init successfully")
+    log.info(f"监控打点已启用 database={influxdb_database} measurement={_measurement or '运行时指定'}")
 
 
 def emit_any(

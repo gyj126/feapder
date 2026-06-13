@@ -200,6 +200,16 @@
 # LOG_ENCODING = "utf8"  # 日志文件编码
 # OTHERS_LOG_LEVAL = "ERROR"  # 第三方库的log等级
 #
+# # InfluxDB 监控打点（配合 Grafana 可视化）
+# INFLUXDB_HOST = "your-influxdb-host"
+# INFLUXDB_PORT = 8086
+# INFLUXDB_UDP_PORT = 8089
+# INFLUXDB_USER = "your-user"
+# INFLUXDB_PASSWORD = "your-password"
+# INFLUXDB_DATABASE = "feapder"
+# # INFLUXDB_MEASUREMENT = "RedditSpider"  # 可选，不填则自动用爬虫类名
+# METRICS_OTHER_ARGS = dict(retention_policy_duration="180d", emit_interval=60)
+#
 # # 切换工作路径为当前项目路径
 # project_path = os.path.abspath(os.path.dirname(__file__))
 # os.chdir(project_path)  # 切换工作路经
