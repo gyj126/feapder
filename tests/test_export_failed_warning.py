@@ -20,6 +20,7 @@ class DummyItemBuffer:
 def build_scheduler(spider_name="RedditClean", export_falied_times=11):
     scheduler = Scheduler.__new__(Scheduler)
     scheduler._last_check_task_status_time = 0
+    scheduler._last_export_failed_times = 0
     scheduler._last_check_task_count_time = time.time()
     scheduler._last_task_count = 0
     scheduler._spider_name = spider_name
@@ -73,6 +74,26 @@ class TestExportFailedWarning(unittest.TestCase):
         self.assertEqual(scheduler.sent_messages[0]["level"], "warning")
         self.assertEqual(scheduler.sent_messages[0]["message_prefix"], "《RedditClean》爬虫导出数据失败")
         self.assertIn("失败次数：11", scheduler.sent_messages[0]["msg"])
+
+    def test_scheduler_does_not_repeat_alert_when_count_unchanged(self):
+        with mock.patch.object(ParserControl, "get_task_status_count", return_value=(0, 0, 0)):
+            scheduler = build_scheduler(spider_name="RedditClean", export_falied_times=247)
+            scheduler.check_task_status()
+            scheduler.check_task_status()
+
+        self.assertEqual(len(scheduler.sent_messages), 1)
+        self.assertIn("失败次数：247", scheduler.sent_messages[0]["msg"])
+
+    def test_scheduler_alerts_on_new_failure_with_total_count(self):
+        with mock.patch.object(ParserControl, "get_task_status_count", return_value=(0, 0, 0)):
+            scheduler = build_scheduler(spider_name="RedditClean", export_falied_times=247)
+            scheduler.check_task_status()
+            scheduler._item_buffer.export_falied_times = 248
+            scheduler.check_task_status()
+
+        self.assertEqual(len(scheduler.sent_messages), 2)
+        self.assertIn("失败次数：247", scheduler.sent_messages[0]["msg"])
+        self.assertIn("失败次数：248", scheduler.sent_messages[1]["msg"])
 
     def test_item_buffer_does_not_send_msg_on_export_failed(self):
         buffer = build_item_buffer(export_falied_times=10)

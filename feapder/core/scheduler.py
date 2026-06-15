@@ -146,6 +146,7 @@ class Scheduler(TailThread):
             self.delete_tables(delete_keys)
 
         self._last_check_task_status_time = 0
+        self._last_export_failed_times = 0
         self.wait_lock = wait_lock
 
         self.init_metrics()
@@ -395,9 +396,10 @@ class Scheduler(TailThread):
                 self._last_check_task_count_time = current_time
 
         # 检查入库失败次数
-        if self._item_buffer.export_falied_times > setting.EXPORT_DATA_MAX_FAILED_TIMES:
+        failed_times = self._item_buffer.export_falied_times
+        if failed_times > setting.EXPORT_DATA_MAX_FAILED_TIMES and failed_times > self._last_export_failed_times:
             msg = "《{}》爬虫导出数据失败，失败次数：{}， 请检查爬虫是否正常".format(
-                self._spider_name, self._item_buffer.export_falied_times
+                self._spider_name, failed_times
             )
             log.error(msg)
             self.send_msg(
@@ -405,6 +407,7 @@ class Scheduler(TailThread):
                 level="warning",
                 message_prefix="《%s》爬虫导出数据失败" % (self._spider_name),
             )
+            self._last_export_failed_times = failed_times
 
     def delete_tables(self, delete_keys):
         if delete_keys == True:
