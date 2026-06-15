@@ -66,11 +66,10 @@ class MysqlPipeline(BasePipeline):
         sql, datas = tools.make_batch_sql(
             table, items, update_columns=update_keys or list(items[0].keys())
         )
-        update_count = self.to_db.add_batch(sql, datas)
-        if update_count:
-            msg = "共更新 %s 条数据 到 %s" % (update_count // 2, table)
-            if update_keys:
-                msg += " 更新字段为 {}".format(update_keys)
+        affected = self.to_db.add_batch(sql, datas)
+        if affected is not None:
+            batch_size = len(datas)
+            msg = f"共导出 {batch_size} 条数据到 {table}，MySQL affected_rows={affected}"
             log.info(msg)
 
-        return update_count != None
+        return affected is not None
