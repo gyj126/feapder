@@ -159,7 +159,10 @@ class Scheduler(TailThread):
         """
         初始化打点系统
         """
-        metrics.init(**setting.METRICS_OTHER_ARGS)
+        metrics.init(
+            **setting.METRICS_OTHER_ARGS,
+            default_tags={"project": setting.PROJECT_NAME, "spider": self._spider_name},
+        )
 
     def add_parser(self, parser, **kwargs):
         parser = parser(**kwargs)  # parser 实例化

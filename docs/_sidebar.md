@@ -41,11 +41,6 @@
   * [监控打点](source_code/监控打点.md)
   * [自定义下载器](source_code/custom_downloader.md)
 
-* 爬虫管理系统
-  * [简介及部署](feapder_platform/feaplat.md)
-  * [使用说明](feapder_platform/usage.md)
-  * [常见问题](feapder_platform/question.md)
-
 * 常见问题
   * [安装问题](question/安装问题.md)
   * [运行问题](question/运行问题.md)

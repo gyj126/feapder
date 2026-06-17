@@ -128,9 +128,6 @@ class MetricsEmitter:
             # 修改下counter类型的点的时间戳，补足19位, 伪装成纳秒级时间戳，防止influxdb对同一秒内的数据进行覆盖
             point["time"] = self._make_time_to_ns(point["time"])
             new_points.append(point)
-
-            # 把拟合后的 counter 值添加进来
-            new_points.append(point)
         return new_points
 
     def _get_ready_emit(self, force=False):
@@ -363,16 +360,8 @@ def init(
         retention_policy or f"{influxdb_database}_{retention_policy_duration}"
     )
 
-    if not all(
-        [
-            influxdb_host,
-            influxdb_port,
-            influxdb_udp_port,
-            influxdb_database,
-            influxdb_user,
-            influxdb_password,
-        ]
-    ):
+    # 仅校验连接必需项，user/password 允许为空以支持无认证的 influxdb 1.x
+    if not all([influxdb_host, influxdb_port, influxdb_udp_port, influxdb_database]):
         return
 
     influxdb_client = InfluxDBClient(
