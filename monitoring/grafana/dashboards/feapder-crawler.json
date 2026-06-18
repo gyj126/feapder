@@ -256,6 +256,10 @@
       "title": "下载成功率",
       "transformations": [
         {
+          "id": "joinByField",
+          "options": {"byField": "Time", "mode": "outer"}
+        },
+        {
           "id": "calculateField",
           "options": {
             "alias": "成功率",
@@ -614,12 +618,16 @@
           "resultFormat": "time_series"
         }
       ],
-      "title": "2xx 成功率",
+      "title": "请求成功率",
       "transformations": [
+        {
+          "id": "joinByField",
+          "options": {"byField": "Time", "mode": "outer"}
+        },
         {
           "id": "calculateField",
           "options": {
-            "alias": "2xx成功率",
+            "alias": "请求成功率",
             "binary": {"left": "success", "operator": "/", "right": "total"},
             "mode": "binary",
             "replaceFields": true

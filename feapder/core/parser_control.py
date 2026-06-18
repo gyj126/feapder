@@ -487,17 +487,25 @@ class ParserControl(threading.Thread):
 
     def record_response_metrics(self, response, spider):
         """
-        记录响应状态码分布与请求耗时
+        记录响应状态码分布与请求耗时，监控异常不影响抓取主流程
         @return:
         """
         if response is None:
             return
-        status_code = getattr(response, "status_code", None)
-        if status_code is not None:
-            metrics.emit_counter(str(status_code), 1, classify="http_status")
-        elapsed = getattr(response, "elapsed", None)
-        if elapsed is not None:
-            metrics.emit_timer(spider, elapsed.total_seconds(), classify="latency")
+        try:
+            status_code = getattr(response, "status_code", None)
+            if status_code is not None:
+                metrics.emit_counter(str(status_code), 1, classify="http_status")
+            elapsed = getattr(response, "elapsed", None)
+            if elapsed is not None:
+                duration = (
+                    elapsed.total_seconds()
+                    if hasattr(elapsed, "total_seconds")
+                    else float(elapsed)
+                )
+                metrics.emit_timer(spider, duration, classify="latency")
+        except Exception as e:
+            log.debug(f"记录响应监控失败: {e}")
 
     def stop(self):
         self._thread_stop = True

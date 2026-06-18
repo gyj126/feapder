@@ -536,13 +536,17 @@ def flush():
 
 def close():
     """
-    关闭
+    关闭并清空，允许同一爬虫在同进程内重新初始化
     Returns:
 
     """
+    global _emitter, _inited_pid, _measurement
     if not _emitter:
         return
     _emitter.close()
+    _emitter = None
+    _inited_pid = None
+    _measurement = None
 
 
 # 协程打点
