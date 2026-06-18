@@ -135,6 +135,7 @@ class Scheduler(TailThread):
         self._last_task_count = 0  # 最近一次任务数量
         self._last_check_task_count_time = 0
         self._stop_heartbeat = False  # 是否停止心跳
+        self._status_reporter = None  # 运行状态上报线程
         self._redisdb = RedisDB()
 
         # Request 缓存设置
@@ -250,6 +251,11 @@ class Scheduler(TailThread):
 
         # 心跳开始
         self.heartbeat_start()
+        # 运行状态上报开始
+        self._status_reporter = metrics.SpiderStatusReporter(
+            interval=setting.METRICS_RUNTIME_INTERVAL
+        )
+        self._status_reporter.start()
         # 启动request_buffer
         self._request_buffer.start()
         # 启动item_buffer
@@ -476,6 +482,10 @@ class Scheduler(TailThread):
             # 关闭webdirver
             Request.render_downloader and Request.render_downloader.close_all()
 
+            # 先停上报线程并 join，再关闭打点客户端，避免并发访问已关闭客户端
+            if self._status_reporter:
+                self._status_reporter.stop()
+                self._status_reporter.join()
             # 关闭打点
             metrics.close()
         else:

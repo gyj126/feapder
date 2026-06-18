@@ -46,6 +46,7 @@ requires = [
     "urllib3>=1.25.8",
     "loguru>=0.5.3",
     "influxdb>=5.3.1",
+    "psutil>=5.9.0",
     "pyperclip>=1.8.2",
     "terminal-layout>=2.1.3",
 ]

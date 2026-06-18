@@ -10,7 +10,7 @@ feapder 内置打点监控，运行时将请求下载、数据入库、运行时
 | --- | --- |
 | `project` | 站点/项目名，默认取项目目录名，可在 `setting.py` 用 `PROJECT_NAME` 覆盖 |
 | `spider` | 爬虫名（爬虫类的 `name`） |
-| `_classify` | 指标分组：`document`（下载）、`http_status`（状态码分布）、`latency`（响应耗时）、`<表名>`（入库）、自定义分类 |
+| `_classify` | 指标分组：`document`（下载）、`http_status`（状态码分布）、`latency`（响应耗时）、`runtime`（运行状态，额外带 `hostname`/`pid` tag 区分进程实例）、`<表名>`（入库）、自定义分类 |
 | `_key` | 序列名（折线名） |
 | `_type` | `counter` / `timer` / `store` |
 
@@ -18,7 +18,7 @@ feapder 内置打点监控，运行时将请求下载、数据入库、运行时
 | --- | --- |
 | `_count` | counter 计数 |
 | `_duration` | timer 耗时（秒） |
-| `_value` | store 快照值 |
+| `_value` | store 快照值（如 `runtime` 的 alive/uptime/memory） |
 
 ## 一、爬虫侧配置
 
@@ -60,7 +60,7 @@ PROJECT_NAME = "taobao"
 
 - 请求下载监控：请求总量、下载成功、下载异常、解析异常、下载成功率、下载趋势。
 - 数据入库监控：各表入库总量、选定表的字段非空数。
-- 运行时长与自定义打点：timer 平均耗时、自定义/入库 counter。
+- 运行状态监控：在线/离线状态、运行时长、内存占用。
 - 请求监控（状态码/耗时）：HTTP 状态码分布、2xx 成功率、状态码趋势、请求响应耗时（均值/P95）。
 
 ## 自定义打点
