@@ -155,6 +155,9 @@ class ParserControl(threading.Thread):
                                 "连接超时 url: %s" % (request.url or request_temp.url)
                             )
 
+                        # 记录响应状态码与耗时，早于 validate，避免被 validate 拒绝的响应丢失
+                        self.record_response_metrics(response, parser.name)
+
                         # 校验
                         if parser.validate(request, response) == False:
                             request.is_abandoned = True
@@ -482,6 +485,20 @@ class ParserControl(threading.Thread):
 
         metrics.emit_counter(f"{spider}:{status}", 1, classify="document")
 
+    def record_response_metrics(self, response, spider):
+        """
+        记录响应状态码分布与请求耗时
+        @return:
+        """
+        if response is None:
+            return
+        status_code = getattr(response, "status_code", None)
+        if status_code is not None:
+            metrics.emit_counter(str(status_code), 1, classify="http_status")
+        elapsed = getattr(response, "elapsed", None)
+        if elapsed is not None:
+            metrics.emit_timer(spider, elapsed.total_seconds(), classify="latency")
+
     def stop(self):
         self._thread_stop = True
         self._started.clear()
@@ -624,6 +641,9 @@ class AirSpiderParserControl(ParserControl):
                                 if not setting.RESPONSE_CACHED_USED
                                 else request.get_response_from_cached(save_cached=False)
                             )
+
+                        # 记录响应状态码与耗时，早于 validate，避免被 validate 拒绝的响应丢失
+                        self.record_response_metrics(response, parser.name)
 
                         # 校验
                         if parser.validate(request, response) == False:
