@@ -84,49 +84,59 @@ class AirSpider(BaseParser, TailThread):
     def run(self):
         self.start_callback()
 
-        for i in range(self._thread_count):
-            parser_control = AirSpiderParserControl(
-                memory_db=self._memory_db,
-                request_buffer=self._request_buffer,
-                item_buffer=self._item_buffer,
-            )
-            parser_control.add_parser(self)
-            parser_control.start()
-            self._parser_controls.append(parser_control)
+        # 运行状态上报开始
+        status_reporter = metrics.SpiderStatusReporter(
+            interval=setting.METRICS_RUNTIME_INTERVAL
+        )
+        status_reporter.start()
 
-        self._item_buffer.start()
+        try:
+            for i in range(self._thread_count):
+                parser_control = AirSpiderParserControl(
+                    memory_db=self._memory_db,
+                    request_buffer=self._request_buffer,
+                    item_buffer=self._item_buffer,
+                )
+                parser_control.add_parser(self)
+                parser_control.start()
+                self._parser_controls.append(parser_control)
 
-        self.distribute_task()
+            self._item_buffer.start()
 
-        while True:
-            try:
-                if self._stop_spider or self.all_thread_is_done():
-                    # 停止 parser_controls
-                    for parser_control in self._parser_controls:
-                        parser_control.stop()
+            self.distribute_task()
 
-                    # 关闭item_buffer
-                    self._item_buffer.stop()
+            while True:
+                try:
+                    if self._stop_spider or self.all_thread_is_done():
+                        # 停止 parser_controls
+                        for parser_control in self._parser_controls:
+                            parser_control.stop()
 
-                    # 关闭webdirver
-                    Request.render_downloader and Request.render_downloader.close_all()
+                        # 关闭item_buffer
+                        self._item_buffer.stop()
 
-                    if self._stop_spider:
-                        log.info("爬虫被终止")
-                    else:
-                        log.info("无任务，爬虫结束")
-                    break
+                        # 关闭webdirver
+                        Request.render_downloader and Request.render_downloader.close_all()
 
-            except Exception as e:
-                log.exception(e)
+                        if self._stop_spider:
+                            log.info("爬虫被终止")
+                        else:
+                            log.info("无任务，爬虫结束")
+                        break
 
-            tools.delay_time(1)  # 1秒钟检查一次爬虫状态
+                except Exception as e:
+                    log.exception(e)
 
-        self.end_callback()
-        # 为了线程可重复start
-        self._started.clear()
-        # 关闭打点
-        metrics.close()
+                tools.delay_time(1)  # 1秒钟检查一次爬虫状态
+
+            self.end_callback()
+            # 为了线程可重复start
+            self._started.clear()
+        finally:
+            # 先停上报线程并 join，再关闭打点客户端
+            status_reporter.stop()
+            status_reporter.join()
+            metrics.close()
 
     def join(self, timeout=None):
         """

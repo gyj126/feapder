@@ -259,6 +259,8 @@ INFLUXDB_DATABASE = os.getenv("INFLUXDB_DB")
 INFLUXDB_MEASUREMENT = os.getenv("INFLUXDB_MEASUREMENT", "crawler")
 # 打点监控其他参数，若这里也配置了influxdb的参数, 则会覆盖外面的配置
 METRICS_OTHER_ARGS = dict(retention_policy_duration="180d", emit_interval=60)
+# 运行状态打点（在线/运行时长/内存）上报间隔，单位秒
+METRICS_RUNTIME_INTERVAL = int(os.getenv("METRICS_RUNTIME_INTERVAL", 10))
 
 ############# 导入用户自定义的setting #############
 try:

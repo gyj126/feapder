@@ -10,6 +10,7 @@ import time
 from collections import Counter
 from typing import Any
 
+import psutil
 from influxdb import InfluxDBClient
 
 from feapder import setting
@@ -547,6 +548,34 @@ def close():
     _emitter = None
     _inited_pid = None
     _measurement = None
+
+
+class SpiderStatusReporter(threading.Thread):
+    """周期上报爬虫运行状态：在线心跳 alive、运行时长 uptime(秒)、内存 memory(MB)"""
+
+    def __init__(self, interval=10):
+        if interval <= 0:
+            raise ValueError("interval must be greater than 0")
+        super().__init__(daemon=True)
+        self._interval = interval
+        self._stop_event = threading.Event()
+        self._start_ts = time.time()
+        self._process = psutil.Process(os.getpid())
+        self._tags = {"hostname": socket.gethostname(), "pid": str(os.getpid())}
+
+    def run(self):
+        while not self._stop_event.is_set():
+            try:
+                emit_store("alive", 1, classify="runtime", tags=self._tags)
+                emit_store("uptime", int(time.time() - self._start_ts), classify="runtime", tags=self._tags)
+                memory = round(self._process.memory_info().rss / 1024 / 1024, 2)
+                emit_store("memory", memory, classify="runtime", tags=self._tags)
+            except Exception as e:
+                log.error(f"运行状态打点异常: {e}")
+            self._stop_event.wait(self._interval)
+
+    def stop(self):
+        self._stop_event.set()
 
 
 # 协程打点
