@@ -109,7 +109,7 @@
       "id": 1,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -171,7 +171,7 @@
       "id": 2,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -233,7 +233,7 @@
       "id": 3,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -295,7 +295,7 @@
       "id": 4,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -443,21 +443,21 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
             "lineInterpolation": "smooth",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
-            "spanNulls": false,
+            "showPoints": "auto",
+            "spanNulls": true,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -476,9 +476,30 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "下载成功率" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "下载异常率" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "解析异常率" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -486,14 +507,15 @@
         "x": 0,
         "y": 5
       },
+      "description": "每条折线表示以该时间点为终点、固定 5 分钟窗口内的滚动比率；图例 Last 为最新 5 分钟窗口值。",
       "id": 6,
       "options": {
         "legend": {
           "calcs": [
-            "sum"
+            "lastNotNull"
           ],
           "displayMode": "table",
-          "placement": "bottom",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
@@ -508,15 +530,109 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "alias": "raw_total_5m",
+          "query": "SELECT moving_average(\"total\", 5) AS \"total_5m\" FROM (SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "A",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_success_5m",
+          "query": "SELECT moving_average(\"success\", 5) AS \"success_5m\" FROM (SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "B",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_download_exception_5m",
+          "query": "SELECT moving_average(\"download_exception\", 5) AS \"download_exception_5m\" FROM (SELECT sum(\"_count\") AS \"download_exception\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "C",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_parser_exception_5m",
+          "query": "SELECT moving_average(\"parser_exception\", 5) AS \"parser_exception_5m\" FROM (SELECT sum(\"_count\") AS \"parser_exception\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:parser_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "D",
           "resultFormat": "time_series"
         }
       ],
       "title": "请求下载趋势",
-      "type": "timeseries"
+      "type": "timeseries",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "下载成功率",
+            "binary": {
+              "left": "raw_success_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "下载异常率",
+            "binary": {
+              "left": "raw_download_exception_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "解析异常率",
+            "binary": {
+              "left": "raw_parser_exception_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "raw_total_5m": true,
+              "raw_success_5m": true,
+              "raw_download_exception_5m": true,
+              "raw_parser_exception_5m": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "collapsed": false,
@@ -594,12 +710,84 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Time"
+              "options": "name"
             },
             "properties": [
               {
-                "id": "custom.hidden",
-                "value": true
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "host"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pid"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
               }
             ]
           }
@@ -607,7 +795,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 10,
         "x": 0,
         "y": 14
       },
@@ -627,7 +815,6 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "alias": "$tag_spider@$tag_hostname:$tag_pid",
           "datasource": {
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
@@ -656,15 +843,20 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Field": true
             },
             "indexByName": {
-              "Field": 0,
-              "Last": 1
+              "spider": 0,
+              "hostname": 1,
+              "pid": 2,
+              "Last": 3
             },
             "renameByName": {
-              "Field": "实例",
-              "Last": "状态"
+              "spider": "name",
+              "hostname": "host",
+              "pid": "pid",
+              "Last *": "status"
             }
           }
         }
@@ -687,14 +879,14 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "linear",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
@@ -726,15 +918,15 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 16,
-        "x": 8,
+        "w": 14,
+        "x": 10,
         "y": 14
       },
       "id": 15,
       "options": {
         "legend": {
           "calcs": [
-            "lastNotNull",
+            "mean",
             "max"
           ],
           "displayMode": "table",
@@ -799,6 +991,9 @@
       },
       "id": 11,
       "options": {
+        "displayLabels": [
+          "percent"
+        ],
         "legend": {
           "displayMode": "table",
           "placement": "right",
@@ -807,7 +1002,7 @@
             "percent"
           ]
         },
-        "pieType": "pie",
+        "pieType": "donut",
         "reduceOptions": {
           "calcs": [
             "sum"
@@ -880,7 +1075,7 @@
       "id": 12,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -957,14 +1152,14 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "linear",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
@@ -990,9 +1185,36 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "2xx" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "3xx" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "4xx" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "5xx" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -1004,7 +1226,7 @@
       "options": {
         "legend": {
           "calcs": [
-            "sum"
+            "lastNotNull"
           ],
           "displayMode": "table",
           "placement": "right",
@@ -1022,15 +1244,134 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "alias": "raw_total_5m",
+          "query": "SELECT moving_average(\"total\", 5) AS \"total_5m\" FROM (SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "A",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_2xx_5m",
+          "query": "SELECT moving_average(\"2xx\", 5) AS \"2xx_5m\" FROM (SELECT sum(\"_count\") AS \"2xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "B",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_3xx_5m",
+          "query": "SELECT moving_average(\"3xx\", 5) AS \"3xx_5m\" FROM (SELECT sum(\"_count\") AS \"3xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^3/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "C",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_4xx_5m",
+          "query": "SELECT moving_average(\"4xx\", 5) AS \"4xx_5m\" FROM (SELECT sum(\"_count\") AS \"4xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^4/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "D",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_5xx_5m",
+          "query": "SELECT moving_average(\"5xx\", 5) AS \"5xx_5m\" FROM (SELECT sum(\"_count\") AS \"5xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^5/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "E",
           "resultFormat": "time_series"
         }
       ],
       "title": "状态码趋势",
-      "type": "timeseries"
+      "type": "timeseries",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "2xx",
+            "binary": {
+              "left": "raw_2xx_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "3xx",
+            "binary": {
+              "left": "raw_3xx_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "4xx",
+            "binary": {
+              "left": "raw_4xx_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "5xx",
+            "binary": {
+              "left": "raw_5xx_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "raw_total_5m": true,
+              "raw_2xx_5m": true,
+              "raw_3xx_5m": true,
+              "raw_4xx_5m": true,
+              "raw_5xx_5m": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -1049,8 +1390,8 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -1219,7 +1560,7 @@
     ]
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-30m",
     "to": "now"
   },
   "timepicker": {},
