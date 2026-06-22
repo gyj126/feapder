@@ -443,21 +443,21 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
-            "spanNulls": false,
+            "showPoints": "auto",
+            "spanNulls": true,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -476,7 +476,9 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -486,14 +488,15 @@
         "x": 0,
         "y": 5
       },
+      "description": "每条折线表示以该时间点为终点、固定 5 分钟窗口内的滚动比率；图例 Last 为最新 5 分钟窗口值。",
       "id": 6,
       "options": {
         "legend": {
           "calcs": [
-            "sum"
+            "lastNotNull"
           ],
           "displayMode": "table",
-          "placement": "bottom",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
@@ -508,15 +511,109 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "alias": "raw_total_5m",
+          "query": "SELECT moving_average(\"total\", 5) AS \"total_5m\" FROM (SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "A",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_success_5m",
+          "query": "SELECT moving_average(\"success\", 5) AS \"success_5m\" FROM (SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "B",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_download_exception_5m",
+          "query": "SELECT moving_average(\"download_exception\", 5) AS \"download_exception_5m\" FROM (SELECT sum(\"_count\") AS \"download_exception\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "C",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_parser_exception_5m",
+          "query": "SELECT moving_average(\"parser_exception\", 5) AS \"parser_exception_5m\" FROM (SELECT sum(\"_count\") AS \"parser_exception\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:parser_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
+          "rawQuery": true,
+          "refId": "D",
           "resultFormat": "time_series"
         }
       ],
       "title": "请求下载趋势",
-      "type": "timeseries"
+      "type": "timeseries",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "下载成功率",
+            "binary": {
+              "left": "raw_success_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "下载异常率",
+            "binary": {
+              "left": "raw_download_exception_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "解析异常率",
+            "binary": {
+              "left": "raw_parser_exception_5m",
+              "operator": "/",
+              "right": "raw_total_5m"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "raw_total_5m": true,
+              "raw_success_5m": true,
+              "raw_download_exception_5m": true,
+              "raw_parser_exception_5m": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "collapsed": false,
@@ -602,6 +699,20 @@
                 "value": true
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "实例"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              }
+            ]
           }
         ]
       },
@@ -627,7 +738,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "alias": "$tag_spider@$tag_hostname:$tag_pid",
+          "alias": "$tag_spider@$tag_hostname pid=$tag_pid",
           "datasource": {
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
@@ -645,7 +756,7 @@
           "id": "reduce",
           "options": {
             "includeTimeField": false,
-            "labelsToFields": true,
+            "labelsToFields": false,
             "mode": "seriesToRows",
             "reducers": [
               "lastNotNull"
@@ -990,7 +1101,9 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -1004,7 +1117,7 @@
       "options": {
         "legend": {
           "calcs": [
-            "sum"
+            "lastNotNull"
           ],
           "displayMode": "table",
           "placement": "right",
@@ -1022,15 +1135,134 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "alias": "raw_total",
+          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_2xx",
+          "query": "SELECT sum(\"_count\") AS \"2xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "rawQuery": true,
+          "refId": "B",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_3xx",
+          "query": "SELECT sum(\"_count\") AS \"3xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^3/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "rawQuery": true,
+          "refId": "C",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_4xx",
+          "query": "SELECT sum(\"_count\") AS \"4xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^4/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "rawQuery": true,
+          "refId": "D",
+          "resultFormat": "time_series"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "raw_5xx",
+          "query": "SELECT sum(\"_count\") AS \"5xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^5/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "rawQuery": true,
+          "refId": "E",
           "resultFormat": "time_series"
         }
       ],
       "title": "状态码趋势",
-      "type": "timeseries"
+      "type": "timeseries",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "2xx",
+            "binary": {
+              "left": "raw_2xx",
+              "operator": "/",
+              "right": "raw_total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "3xx",
+            "binary": {
+              "left": "raw_3xx",
+              "operator": "/",
+              "right": "raw_total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "4xx",
+            "binary": {
+              "left": "raw_4xx",
+              "operator": "/",
+              "right": "raw_total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "5xx",
+            "binary": {
+              "left": "raw_5xx",
+              "operator": "/",
+              "right": "raw_total"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "raw_total": true,
+              "raw_2xx": true,
+              "raw_3xx": true,
+              "raw_4xx": true,
+              "raw_5xx": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "datasource": {
