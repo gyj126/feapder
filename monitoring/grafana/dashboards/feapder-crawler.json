@@ -54,7 +54,7 @@
       }
     ]
   },
-  "description": "feapder 爬虫监控看板：按站点(project)、爬虫(spider)、时间维度筛选，展示请求下载、数据入库、运行状态与请求监控。",
+  "description": "feapder 爬虫监控看板：按站点(project)、爬虫(spider)、时间维度筛选，展示请求下载、运行状态与请求监控。",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -64,38 +64,70 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
       "panels": [],
       "title": "请求下载监控",
       "type": "row"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "noValue": "0",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 5, "x": 0, "y": 1},
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 0,
+        "y": 1
+      },
       "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
@@ -106,31 +138,58 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "noValue": "0",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 5, "x": 5, "y": 1},
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 5,
+        "y": 1
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
@@ -141,31 +200,58 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "noValue": "0",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 5, "x": 10, "y": 1},
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 10,
+        "y": 1
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
@@ -176,31 +262,58 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "noValue": "0",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 5, "x": 15, "y": 1},
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 15,
+        "y": 1
+      },
       "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:parser_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
@@ -211,46 +324,77 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "max": 1,
           "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "red", "value": null},
-              {"color": "orange", "value": 0.8},
-              {"color": "green", "value": 0.95}
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           },
           "unit": "percentunit"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "id": 5,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "table"
         },
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "B",
@@ -261,13 +405,20 @@
       "transformations": [
         {
           "id": "joinByField",
-          "options": {"byField": "Time", "mode": "outer"}
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
         },
         {
           "id": "calculateField",
           "options": {
             "alias": "成功率",
-            "binary": {"left": "success", "operator": "/", "right": "total"},
+            "binary": {
+              "left": "success",
+              "operator": "/",
+              "right": "total"
+            },
             "mode": "binary",
             "replaceFields": true
           }
@@ -276,10 +427,15 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
@@ -289,32 +445,69 @@
             "drawStyle": "line",
             "fillOpacity": 10,
             "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "lineInterpolation": "smooth",
             "lineWidth": 1,
             "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": {"group": "A", "mode": "none"},
-            "thresholdsStyle": {"mode": "off"}
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 5},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "id": 6,
       "options": {
-        "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "alias": "$tag__key",
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
           "rawQuery": true,
@@ -322,204 +515,125 @@
           "resultFormat": "time_series"
         }
       ],
-      "title": "请求下载趋势（按 _key）",
+      "title": "请求下载趋势",
       "type": "timeseries"
     },
     {
       "collapsed": false,
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 13},
-      "id": 101,
-      "panels": [],
-      "title": "数据入库监控",
-      "type": "row"
-    },
-    {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {"group": "A", "mode": "normal"},
-            "thresholdsStyle": {"mode": "off"}
-          },
-          "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
-          "unit": "short"
-        },
-        "overrides": []
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
       },
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
-      "id": 7,
-      "options": {
-        "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-          "alias": "$tag__classify",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_key\"='total count' AND \"_classify\"=~/^$table$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_classify\" fill(0)",
-          "rawQuery": true,
-          "refId": "A",
-          "resultFormat": "time_series"
-        }
-      ],
-      "title": "入库总量（按表）",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {"group": "A", "mode": "none"},
-            "thresholdsStyle": {"mode": "off"}
-          },
-          "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
-      "id": 8,
-      "options": {
-        "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-          "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_key\"!='total count' AND \"_classify\"=~/^$table$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
-          "rawQuery": true,
-          "refId": "A",
-          "resultFormat": "time_series"
-        }
-      ],
-      "title": "字段非空数（选定表 $table）",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 22},
       "id": 102,
       "panels": [],
       "title": "运行状态监控",
       "type": "row"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-      "description": "近 2 分钟内有心跳则在线，否则离线",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
+      "description": "按 1 分钟心跳桶判断实例状态；桶内有心跳为在线，无心跳为离线。默认心跳间隔 10 秒，1 分钟阈值可容忍短暂写入延迟。",
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [{"options": {"1": {"color": "green", "index": 0, "text": "在线"}}, "type": "value"}],
-          "noValue": "离线",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 0,
+                "result": {
+                  "color": "red",
+                  "index": 0,
+                  "text": ""
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 1000000,
+                "result": {
+                  "color": "green",
+                  "index": 1,
+                  "text": ""
+                }
+              }
+            }
+          ],
+          "noValue": "",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 23},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
       "id": 9,
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "textMode": "auto"
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "alias": "$tag_spider@$tag_hostname:$tag_pid",
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-          "query": "SELECT last(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='alive' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY \"spider\", \"hostname\", \"pid\"",
-          "rawQuery": true,
-          "refId": "A",
-          "resultFormat": "time_series"
-        }
-      ],
-      "timeFrom": "2m",
-      "title": "运行状态",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "mappings": [],
-          "noValue": "未运行",
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
-          "unit": "s"
+        "colWidth": 0.9,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "overrides": []
-      },
-      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 23},
-      "id": 10,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "textMode": "auto"
+        "rowHeight": 0.9,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
           "alias": "$tag_spider@$tag_hostname:$tag_pid",
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-          "query": "SELECT last(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='uptime' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY \"spider\", \"hostname\", \"pid\"",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "query": "SELECT count(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='heartbeat' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time(1m), \"spider\", \"hostname\", \"pid\" fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
         }
       ],
-      "title": "运行时长",
-      "type": "stat"
+      "title": "运行状态",
+      "type": "status-history"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
@@ -529,33 +643,71 @@
             "drawStyle": "line",
             "fillOpacity": 10,
             "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "lineInterpolation": "smooth",
             "lineWidth": 1,
             "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": {"group": "A", "mode": "none"},
-            "thresholdsStyle": {"mode": "off"}
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "decmbytes"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 14
+      },
       "id": 15,
       "options": {
-        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
           "alias": "$tag_spider@$tag_hostname:$tag_pid",
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT mean(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='memory' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"spider\", \"hostname\", \"pid\" fill(null)",
           "rawQuery": true,
           "refId": "A",
@@ -567,34 +719,68 @@
     },
     {
       "collapsed": false,
-      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
       "id": 103,
       "panels": [],
       "title": "请求监控（状态码/耗时）",
       "type": "row"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
           "mappings": [],
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 33},
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
       "id": 11,
       "options": {
-        "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]},
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
         "pieType": "pie",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
-        "tooltip": {"mode": "single", "sort": "none"}
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "alias": "$tag__key",
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY \"_key\"",
           "rawQuery": true,
@@ -606,46 +792,77 @@
       "type": "piechart"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [],
           "max": 1,
           "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "red", "value": null},
-              {"color": "orange", "value": 0.8},
-              {"color": "green", "value": 0.95}
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           },
           "unit": "percentunit"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 4, "x": 8, "y": 33},
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 8,
+        "y": 23
+      },
       "id": 12,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "table"
         },
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "B",
@@ -656,13 +873,20 @@
       "transformations": [
         {
           "id": "joinByField",
-          "options": {"byField": "Time", "mode": "outer"}
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
         },
         {
           "id": "calculateField",
           "options": {
             "alias": "请求成功率",
-            "binary": {"left": "success", "operator": "/", "right": "total"},
+            "binary": {
+              "left": "success",
+              "operator": "/",
+              "right": "total"
+            },
             "mode": "binary",
             "replaceFields": true
           }
@@ -671,10 +895,15 @@
       "type": "stat"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
@@ -684,32 +913,69 @@
             "drawStyle": "bars",
             "fillOpacity": 60,
             "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": {"group": "A", "mode": "normal"},
-            "thresholdsStyle": {"mode": "off"}
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 33},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
       "id": 13,
       "options": {
-        "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
           "alias": "$tag__key",
           "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
           "rawQuery": true,
@@ -721,10 +987,15 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUXDB}"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
@@ -734,63 +1005,117 @@
             "drawStyle": "line",
             "fillOpacity": 10,
             "gradientMode": "none",
-            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
             "lineInterpolation": "smooth",
             "lineWidth": 1,
             "pointSize": 5,
-            "scaleDistribution": {"type": "linear"},
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
             "spanNulls": false,
-            "stacking": {"group": "A", "mode": "none"},
-            "thresholdsStyle": {"mode": "off"}
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "s"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 41},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
       "id": 14,
       "options": {
-        "legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-          "alias": "$tag__key $col",
-          "query": "SELECT mean(\"_duration\") AS \"mean\", percentile(\"_duration\", 95) AS \"p95\" FROM \"$measurement\" WHERE \"_classify\"='latency' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(null)",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUXDB}"
+          },
+          "alias": "$tag__key",
+          "query": "SELECT percentile(\"_duration\", 95) FROM \"$measurement\" WHERE \"_classify\"='latency' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(null)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
         }
       ],
-      "title": "请求响应耗时（均值/P95）",
+      "title": "请求响应耗时 P95",
       "type": "timeseries"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 37,
   "style": "dark",
-  "tags": ["feapder", "crawler"],
+  "tags": [
+    "feapder",
+    "crawler"
+  ],
   "templating": {
     "list": [
       {
-        "current": {"selected": false, "text": "crawler", "value": "crawler"},
+        "current": {
+          "selected": false,
+          "text": "crawler",
+          "value": "crawler"
+        },
         "description": "InfluxDB measurement 名称，需与 setting.INFLUXDB_MEASUREMENT 一致",
         "hide": 0,
         "label": "measurement",
         "name": "measurement",
-        "options": [{"selected": true, "text": "crawler", "value": "crawler"}],
+        "options": [
+          {
+            "selected": true,
+            "text": "crawler",
+            "value": "crawler"
+          }
+        ],
         "query": "crawler",
         "skipUrlSync": false,
         "type": "constant"
       },
       {
         "current": {},
-        "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${DS_INFLUXDB}"
+        },
         "definition": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"project\"",
         "hide": 0,
         "includeAll": true,
@@ -807,7 +1132,10 @@
       },
       {
         "current": {},
-        "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${DS_INFLUXDB}"
+        },
         "definition": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"spider\" WHERE \"project\" =~ /^$project$/",
         "hide": 0,
         "includeAll": true,
@@ -821,27 +1149,13 @@
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
-      },
-      {
-        "current": {},
-        "datasource": {"type": "influxdb", "uid": "${DS_INFLUXDB}"},
-        "definition": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"_classify\" WHERE \"project\" =~ /^$project$/",
-        "hide": 0,
-        "includeAll": true,
-        "label": "数据表",
-        "multi": true,
-        "name": "table",
-        "options": [],
-        "query": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"_classify\" WHERE \"project\" =~ /^$project$/",
-        "refresh": 2,
-        "regex": "/^(?!document$)(?!proxy$)(?!users_)(?!http_status$)(?!latency$).+/",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
       }
     ]
   },
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "feapder 爬虫监控",

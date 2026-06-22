@@ -89,6 +89,7 @@ class TestExportFailedWarning(unittest.TestCase):
             scheduler = build_scheduler(spider_name="RedditClean", export_falied_times=247)
             scheduler.check_task_status()
             scheduler._item_buffer.export_falied_times = 248
+            scheduler._last_check_task_status_time = 0
             scheduler.check_task_status()
 
         self.assertEqual(len(scheduler.sent_messages), 2)
