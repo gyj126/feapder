@@ -109,7 +109,7 @@
       "id": 1,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -171,7 +171,7 @@
       "id": 2,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -233,7 +233,7 @@
       "id": 3,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -295,7 +295,7 @@
       "id": 4,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -691,25 +691,75 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Time"
-            },
-            "properties": [
-              {
-                "id": "custom.hidden",
-                "value": true
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "实例"
+              "options": "name"
             },
             "properties": [
               {
                 "id": "custom.cellOptions",
                 "value": {
                   "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "host"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pid"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": []
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
                 }
               }
             ]
@@ -738,7 +788,6 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "alias": "$tag_spider@$tag_hostname pid=$tag_pid",
           "datasource": {
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
@@ -756,7 +805,7 @@
           "id": "reduce",
           "options": {
             "includeTimeField": false,
-            "labelsToFields": false,
+            "labelsToFields": true,
             "mode": "seriesToRows",
             "reducers": [
               "lastNotNull"
@@ -767,15 +816,20 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Field": true
             },
             "indexByName": {
-              "Field": 0,
-              "Last": 1
+              "spider": 0,
+              "hostname": 1,
+              "pid": 2,
+              "Last": 3
             },
             "renameByName": {
-              "Field": "实例",
-              "Last": "状态"
+              "spider": "name",
+              "hostname": "host",
+              "pid": "pid",
+              "Last *": "status"
             }
           }
         }
@@ -845,7 +899,7 @@
       "options": {
         "legend": {
           "calcs": [
-            "lastNotNull",
+            "mean",
             "max"
           ],
           "displayMode": "table",
@@ -1135,8 +1189,8 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "raw_total",
-          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "alias": "raw_total_5m",
+          "query": "SELECT moving_average(\"total\", 5) AS \"total_5m\" FROM (SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -1146,8 +1200,8 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "raw_2xx",
-          "query": "SELECT sum(\"_count\") AS \"2xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "alias": "raw_2xx_5m",
+          "query": "SELECT moving_average(\"2xx\", 5) AS \"2xx_5m\" FROM (SELECT sum(\"_count\") AS \"2xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "B",
           "resultFormat": "time_series"
@@ -1157,8 +1211,8 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "raw_3xx",
-          "query": "SELECT sum(\"_count\") AS \"3xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^3/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "alias": "raw_3xx_5m",
+          "query": "SELECT moving_average(\"3xx\", 5) AS \"3xx_5m\" FROM (SELECT sum(\"_count\") AS \"3xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^3/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "C",
           "resultFormat": "time_series"
@@ -1168,8 +1222,8 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "raw_4xx",
-          "query": "SELECT sum(\"_count\") AS \"4xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^4/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "alias": "raw_4xx_5m",
+          "query": "SELECT moving_average(\"4xx\", 5) AS \"4xx_5m\" FROM (SELECT sum(\"_count\") AS \"4xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^4/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "D",
           "resultFormat": "time_series"
@@ -1179,8 +1233,8 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "alias": "raw_5xx",
-          "query": "SELECT sum(\"_count\") AS \"5xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^5/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "alias": "raw_5xx_5m",
+          "query": "SELECT moving_average(\"5xx\", 5) AS \"5xx_5m\" FROM (SELECT sum(\"_count\") AS \"5xx\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^5/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(1m) fill(0))",
           "rawQuery": true,
           "refId": "E",
           "resultFormat": "time_series"
@@ -1201,9 +1255,9 @@
           "options": {
             "alias": "2xx",
             "binary": {
-              "left": "raw_2xx",
+              "left": "raw_2xx_5m",
               "operator": "/",
-              "right": "raw_total"
+              "right": "raw_total_5m"
             },
             "mode": "binary",
             "replaceFields": false
@@ -1214,9 +1268,9 @@
           "options": {
             "alias": "3xx",
             "binary": {
-              "left": "raw_3xx",
+              "left": "raw_3xx_5m",
               "operator": "/",
-              "right": "raw_total"
+              "right": "raw_total_5m"
             },
             "mode": "binary",
             "replaceFields": false
@@ -1227,9 +1281,9 @@
           "options": {
             "alias": "4xx",
             "binary": {
-              "left": "raw_4xx",
+              "left": "raw_4xx_5m",
               "operator": "/",
-              "right": "raw_total"
+              "right": "raw_total_5m"
             },
             "mode": "binary",
             "replaceFields": false
@@ -1240,9 +1294,9 @@
           "options": {
             "alias": "5xx",
             "binary": {
-              "left": "raw_5xx",
+              "left": "raw_5xx_5m",
               "operator": "/",
-              "right": "raw_total"
+              "right": "raw_total_5m"
             },
             "mode": "binary",
             "replaceFields": false
@@ -1252,11 +1306,11 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "raw_total": true,
-              "raw_2xx": true,
-              "raw_3xx": true,
-              "raw_4xx": true,
-              "raw_5xx": true
+              "raw_total_5m": true,
+              "raw_2xx_5m": true,
+              "raw_3xx_5m": true,
+              "raw_4xx_5m": true,
+              "raw_5xx_5m": true
             },
             "indexByName": {},
             "renameByName": {}
@@ -1451,7 +1505,7 @@
     ]
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-30m",
     "to": "now"
   },
   "timepicker": {},
