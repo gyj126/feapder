@@ -103,7 +103,7 @@
       "gridPos": {
         "h": 4,
         "w": 5,
-        "x": 0,
+        "x": 4,
         "y": 1
       },
       "id": 1,
@@ -128,7 +128,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -165,7 +165,7 @@
       "gridPos": {
         "h": 4,
         "w": 5,
-        "x": 5,
+        "x": 9,
         "y": 1
       },
       "id": 2,
@@ -190,7 +190,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -227,7 +227,7 @@
       "gridPos": {
         "h": 4,
         "w": 5,
-        "x": 10,
+        "x": 14,
         "y": 1
       },
       "id": 3,
@@ -252,7 +252,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -289,7 +289,7 @@
       "gridPos": {
         "h": 4,
         "w": 5,
-        "x": 15,
+        "x": 19,
         "y": 1
       },
       "id": 4,
@@ -314,7 +314,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:parser_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:parser_exception$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval) fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -344,12 +344,12 @@
                 "value": null
               },
               {
-                "color": "orange",
-                "value": 0.8
+                "color": "yellow",
+                "value": 0.6
               },
               {
                 "color": "green",
-                "value": 0.95
+                "value": 0.8
               }
             ]
           },
@@ -360,7 +360,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
+        "x": 0,
         "y": 1
       },
       "id": 5,
@@ -385,7 +385,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
+          "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_success$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "table"
@@ -395,7 +395,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
+          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='document' AND \"_key\"=~/:download_total$/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "B",
           "resultFormat": "table"
@@ -509,7 +509,7 @@
             "uid": "${DS_INFLUXDB}"
           },
           "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='document' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -536,11 +536,18 @@
         "type": "influxdb",
         "uid": "${DS_INFLUXDB}"
       },
-      "description": "按 1 分钟心跳桶判断实例状态；桶内有心跳为在线，无心跳为离线。默认心跳间隔 10 秒，1 分钟阈值可容忍短暂写入延迟。",
+      "description": "最近 60 秒内有心跳则为在线；主机筛选会过滤实例。",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "color-background"
+            },
+            "inspect": false
           },
           "mappings": [
             {
@@ -551,7 +558,7 @@
                 "result": {
                   "color": "red",
                   "index": 0,
-                  "text": ""
+                  "text": "离线"
                 }
               }
             },
@@ -563,12 +570,11 @@
                 "result": {
                   "color": "green",
                   "index": 1,
-                  "text": ""
+                  "text": "在线"
                 }
               }
             }
           ],
-          "noValue": "",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -584,7 +590,20 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -594,18 +613,16 @@
       },
       "id": 9,
       "options": {
-        "colWidth": 0.9,
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
         },
-        "rowHeight": 0.9,
-        "showValue": "never",
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
+        "showHeader": true
       },
       "pluginVersion": "9.0.0",
       "targets": [
@@ -615,14 +632,43 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT count(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='heartbeat' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time(1m), \"spider\", \"hostname\", \"pid\" fill(0)",
+          "query": "SELECT count(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='heartbeat' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND time > now() - 60s GROUP BY \"spider\", \"hostname\", \"pid\"",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
         }
       ],
       "title": "运行状态",
-      "type": "status-history"
+      "type": "table",
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "includeTimeField": false,
+            "labelsToFields": true,
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Field": 0,
+              "Last": 1
+            },
+            "renameByName": {
+              "Field": "实例",
+              "Last": "状态"
+            }
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -641,21 +687,21 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
               "viz": false
             },
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
-            "spanNulls": false,
+            "showPoints": "auto",
+            "spanNulls": true,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -708,7 +754,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT mean(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='memory' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"spider\", \"hostname\", \"pid\" fill(null)",
+          "query": "SELECT last(\"_value\") FROM \"$measurement\" WHERE \"_classify\"='runtime' AND \"_key\"='memory' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time(10s), \"spider\", \"hostname\", \"pid\" fill(null)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -748,7 +794,7 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 0,
+        "x": 4,
         "y": 23
       },
       "id": 11,
@@ -782,7 +828,7 @@
             "uid": "${DS_INFLUXDB}"
           },
           "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY \"_key\"",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY \"_key\"",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -812,12 +858,12 @@
                 "value": null
               },
               {
-                "color": "orange",
-                "value": 0.8
+                "color": "yellow",
+                "value": 0.6
               },
               {
                 "color": "green",
-                "value": 0.95
+                "value": 0.8
               }
             ]
           },
@@ -828,7 +874,7 @@
       "gridPos": {
         "h": 8,
         "w": 4,
-        "x": 8,
+        "x": 0,
         "y": 23
       },
       "id": 12,
@@ -853,7 +899,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
+          "query": "SELECT sum(\"_count\") AS \"success\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"_key\"=~/^2/ AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "table"
@@ -863,7 +909,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter",
+          "query": "SELECT sum(\"_count\") AS \"total\" FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter",
           "rawQuery": true,
           "refId": "B",
           "resultFormat": "table"
@@ -910,8 +956,8 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 60,
+            "drawStyle": "line",
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -919,16 +965,16 @@
               "viz": false
             },
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
-            "spanNulls": false,
+            "showPoints": "auto",
+            "spanNulls": true,
             "stacking": {
               "group": "A",
-              "mode": "normal"
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -977,7 +1023,7 @@
             "uid": "${DS_INFLUXDB}"
           },
           "alias": "$tag__key",
-          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
+          "query": "SELECT sum(\"_count\") FROM \"$measurement\" WHERE \"_classify\"='http_status' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(0)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -1003,7 +1049,7 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -1011,13 +1057,13 @@
               "viz": false
             },
             "lineInterpolation": "smooth",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
-            "spanNulls": false,
+            "showPoints": "auto",
+            "spanNulls": true,
             "stacking": {
               "group": "A",
               "mode": "none"
@@ -1070,7 +1116,7 @@
             "uid": "${DS_INFLUXDB}"
           },
           "alias": "$tag__key",
-          "query": "SELECT percentile(\"_duration\", 95) FROM \"$measurement\" WHERE \"_classify\"='latency' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(null)",
+          "query": "SELECT percentile(\"_duration\", 95) FROM \"$measurement\" WHERE \"_classify\"='latency' AND \"project\"=~/^$project$/ AND \"spider\"=~/^$spider$/ AND \"hostname\"=~/^$host$/ AND $timeFilter GROUP BY time($__interval), \"_key\" fill(null)",
           "rawQuery": true,
           "refId": "A",
           "resultFormat": "time_series"
@@ -1144,6 +1190,26 @@
         "name": "spider",
         "options": [],
         "query": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"spider\" WHERE \"project\" =~ /^$project$/",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${DS_INFLUXDB}"
+        },
+        "definition": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"hostname\" WHERE \"project\" =~ /^$project$/ AND \"spider\" =~ /^$spider$/",
+        "hide": 0,
+        "includeAll": true,
+        "label": "主机",
+        "multi": true,
+        "name": "host",
+        "options": [],
+        "query": "SHOW TAG VALUES FROM \"$measurement\" WITH KEY = \"hostname\" WHERE \"project\" =~ /^$project$/ AND \"spider\" =~ /^$spider$/",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
