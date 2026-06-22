@@ -109,7 +109,7 @@ class MetricsEmitter:
                 else:
                     counters[tagset]["fields"]["_count"] += point["fields"]["_count"]
             elif point_type == "timer":
-                if self.max_timer_seq and timer_seqs[tagset] > self.max_timer_seq:
+                if self.max_timer_seq and timer_seqs[tagset] >= self.max_timer_seq:
                     continue
                 # 掷一把骰子，如果足够幸运才打点
                 if self.ratio < 1.0 and random.random() > self.ratio:
@@ -298,6 +298,7 @@ class MetricsEmitter:
 
 _emitter: MetricsEmitter = None
 _measurement: str = None
+_init_signature = None
 
 
 def init(
@@ -346,9 +347,7 @@ def init(
     Returns:
 
     """
-    global _inited_pid, _emitter, _measurement
-    if _inited_pid == os.getpid():
-        return
+    global _inited_pid, _emitter, _measurement, _init_signature
 
     influxdb_host = influxdb_host or setting.INFLUXDB_HOST
     influxdb_port = influxdb_port or setting.INFLUXDB_PORT
@@ -356,10 +355,36 @@ def init(
     influxdb_database = influxdb_database or setting.INFLUXDB_DATABASE
     influxdb_user = influxdb_user or setting.INFLUXDB_USER
     influxdb_password = influxdb_password or setting.INFLUXDB_PASSWORD
-    _measurement = influxdb_measurement or setting.INFLUXDB_MEASUREMENT
+    measurement = influxdb_measurement or setting.INFLUXDB_MEASUREMENT
     retention_policy = (
         retention_policy or f"{influxdb_database}_{retention_policy_duration}"
     )
+    init_signature = (
+        influxdb_host,
+        influxdb_port,
+        influxdb_udp_port,
+        influxdb_database,
+        influxdb_user,
+        influxdb_password,
+        measurement,
+        retention_policy,
+        retention_policy_duration,
+        emit_interval,
+        batch_size,
+        debug,
+        use_udp,
+        timeout,
+        ssl,
+        retention_policy_replication,
+        set_retention_policy_default,
+        repr(sorted(kwargs.items())),
+    )
+    if _inited_pid == os.getpid():
+        if _init_signature != init_signature:
+            log.warning(
+                "metrics already initialized in current process, new init args will be ignored"
+            )
+        return
 
     # 仅校验连接必需项，user/password 允许为空以支持无认证的 influxdb 1.x
     if not all([influxdb_host, influxdb_port, influxdb_udp_port, influxdb_database]):
@@ -380,12 +405,20 @@ def init(
     if influxdb_database:
         try:
             influxdb_client.create_database(influxdb_database)
-            influxdb_client.create_retention_policy(
-                retention_policy,
-                retention_policy_duration,
-                replication=retention_policy_replication,
-                default=set_retention_policy_default,
+            retention_policies = influxdb_client.get_list_retention_policies(
+                influxdb_database
             )
+            retention_policy_exists = any(
+                policy.get("name") == retention_policy
+                for policy in retention_policies
+            )
+            if not retention_policy_exists:
+                influxdb_client.create_retention_policy(
+                    retention_policy,
+                    retention_policy_duration,
+                    replication=retention_policy_replication,
+                    default=set_retention_policy_default,
+                )
         except Exception as e:
             log.error("metrics init falied: {}".format(e))
             return
@@ -399,6 +432,8 @@ def init(
         **kwargs,
     )
     _inited_pid = os.getpid()
+    _measurement = measurement
+    _init_signature = init_signature
     log.info("metrics init successfully")
 
 
@@ -541,17 +576,18 @@ def close():
     Returns:
 
     """
-    global _emitter, _inited_pid, _measurement
+    global _emitter, _inited_pid, _measurement, _init_signature
     if not _emitter:
         return
     _emitter.close()
     _emitter = None
     _inited_pid = None
     _measurement = None
+    _init_signature = None
 
 
 class SpiderStatusReporter(threading.Thread):
-    """周期上报爬虫运行状态：在线心跳 alive、运行时长 uptime(秒)、内存 memory(MB)"""
+    """周期上报爬虫运行状态：心跳 heartbeat、内存 memory(MB)"""
 
     def __init__(self, interval=10):
         if interval <= 0:
@@ -559,16 +595,19 @@ class SpiderStatusReporter(threading.Thread):
         super().__init__(daemon=True)
         self._interval = interval
         self._stop_event = threading.Event()
-        self._start_ts = time.time()
         self._process = psutil.Process(os.getpid())
         self._tags = {"hostname": socket.gethostname(), "pid": str(os.getpid())}
 
     def run(self):
         while not self._stop_event.is_set():
             try:
-                emit_store("alive", 1, classify="runtime", tags=self._tags)
-                emit_store("uptime", int(time.time() - self._start_ts), classify="runtime", tags=self._tags)
-                memory = round(self._process.memory_info().rss / 1024 / 1024, 2)
+                emit_store(
+                    "heartbeat",
+                    int(time.time()),
+                    classify="runtime",
+                    tags=self._tags,
+                )
+                memory = int(round(self._process.memory_info().rss / 1024 / 1024))
                 emit_store("memory", memory, classify="runtime", tags=self._tags)
             except Exception as e:
                 log.error(f"运行状态打点异常: {e}")

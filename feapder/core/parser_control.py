@@ -37,6 +37,7 @@ class ParserControl(threading.Thread):
     _success_task_count = 0
     _failed_task_count = 0
     _total_task_count = 0
+    _task_count_lock = threading.Lock()
 
     _hook_parsers = set()
 
@@ -72,7 +73,19 @@ class ParserControl(threading.Thread):
 
     @classmethod
     def get_task_status_count(cls):
-        return cls._failed_task_count, cls._success_task_count, cls._total_task_count
+        with cls._task_count_lock:
+            return (
+                cls._failed_task_count,
+                cls._success_task_count,
+                cls._total_task_count,
+            )
+
+    @classmethod
+    def incr_task_status_count(cls, failed=0, success=0, total=0):
+        with cls._task_count_lock:
+            cls._failed_task_count += failed
+            cls._success_task_count += success
+            cls._total_task_count += total
 
     def deal_request(self, request):
         response = None
@@ -86,7 +99,7 @@ class ParserControl(threading.Thread):
             if parser.name == request.parser_name:
                 used_download_midware_enable = False
                 try:
-                    self.__class__._total_task_count += 1
+                    self.__class__.incr_task_status_count(total=1)
                     # 记录需下载的文档
                     self.record_download_status(
                         ParserControl.DOWNLOAD_TOTAL, parser.name
@@ -205,7 +218,7 @@ class ParserControl(threading.Thread):
                                     self._item_buffer.put_item(result)
                                     del_request_redis_after_item_to_db = True
                             del_request_redis_after_request_to_db = True
-                            self.__class__._failed_task_count += 1
+                            self.__class__.incr_task_status_count(failed=1)
                             break
 
                     else:
@@ -348,7 +361,7 @@ class ParserControl(threading.Thread):
                             request.retry_times + 1 > setting.SPIDER_MAX_RETRY_TIMES
                             or request.is_abandoned
                         ):
-                            self.__class__._failed_task_count += 1  # 记录失败任务数
+                            self.__class__.incr_task_status_count(failed=1)  # 记录失败任务数
 
                             # 处理failed_request的返回值 request 或 func
                             results = parser.failed_request(request, response, e) or [
@@ -431,7 +444,7 @@ class ParserControl(threading.Thread):
                         ParserControl.DOWNLOAD_SUCCESS, parser.name
                     )
                     # 记录成功任务数
-                    self.__class__._success_task_count += 1
+                    self.__class__.incr_task_status_count(success=1)
 
                     # 缓存下载成功的文档
                     if setting.RESPONSE_CACHED_ENABLE:
@@ -536,6 +549,7 @@ class AirSpiderParserControl(ParserControl):
     # 实时统计请求成功数及失败数，用于计算请求成功率报警
     _success_task_count = 0
     _failed_task_count = 0
+    _total_task_count = 0
 
     def __init__(
         self,
@@ -593,7 +607,7 @@ class AirSpiderParserControl(ParserControl):
         for parser in self._parsers:
             if parser.name == request.parser_name:
                 try:
-                    self.__class__._total_task_count += 1
+                    self.__class__.incr_task_status_count(total=1)
                     # 记录需下载的文档
                     self.record_download_status(
                         ParserControl.DOWNLOAD_TOTAL, parser.name
@@ -666,7 +680,7 @@ class AirSpiderParserControl(ParserControl):
                                 ),
                             ) or []
                             self.dispatch_failed_results(parser, results)
-                            self.__class__._failed_task_count += 1
+                            self.__class__.incr_task_status_count(failed=1)
                             break
 
                     else:
@@ -786,7 +800,7 @@ class AirSpiderParserControl(ParserControl):
                             # 处理failed_request的返回值 request 或 func
                             results = parser.failed_request(request, response, e) or []
                             self.dispatch_failed_results(parser, results)
-                            self.__class__._failed_task_count += 1  # 记录失败任务数
+                            self.__class__.incr_task_status_count(failed=1)  # 记录失败任务数
 
                             log.info(
                                 """
@@ -825,7 +839,7 @@ class AirSpiderParserControl(ParserControl):
                         ParserControl.DOWNLOAD_SUCCESS, parser.name
                     )
                     # 记录成功任务数
-                    self.__class__._success_task_count += 1
+                    self.__class__.incr_task_status_count(success=1)
 
                     # 缓存下载成功的文档
                     if setting.RESPONSE_CACHED_ENABLE:
