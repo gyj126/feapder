@@ -77,7 +77,7 @@ PROJECT_NAME = "taobao"
 
 ### 运行状态监控
 
-基于 `_classify='runtime'`，额外带 `hostname` / `pid` tag 区分进程实例。
+基于 `_classify='runtime'`，额外带 `hostname` / `pid` tag 区分进程实例。`hostname` 取本机内网 IP（探测失败时回退为机器名）。
 
 | 面板 | 对应指标 | 含义 |
 | --- | --- | --- |

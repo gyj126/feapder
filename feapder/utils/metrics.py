@@ -15,7 +15,7 @@ from influxdb import InfluxDBClient
 
 from feapder import setting
 from feapder.utils.log import log
-from feapder.utils.tools import aio_wrap, ensure_float, ensure_int
+from feapder.utils.tools import aio_wrap, ensure_float, ensure_int, get_localhost_ip
 
 _inited_pid = None
 # this thread should stop running in the forked process
@@ -57,7 +57,7 @@ class MetricsEmitter:
         self.tagkv = {}
         self.max_timer_seq = max_timer_seq
         self.lock = threading.Lock()
-        self.hostname = socket.gethostname()
+        self.hostname = get_localhost_ip() or socket.gethostname()
         self.last_emit_ts = time.time()  # 上次提交时间
         self.emit_interval = emit_interval  # 提交间隔
         self.max_points = max_points
