@@ -66,6 +66,10 @@ class MetricsEmitter:
         self.add_hostname = add_hostname
         self.ratio = ratio
         self.default_tags = default_tags or {}
+        self.process_tags = {
+            "hostname": self.hostname,
+            "pid": str(os.getpid()),
+        }
 
     def define_tagkv(self, tagk, tagvs):
         self.tagkv[tagk] = set(tagvs)
@@ -213,11 +217,14 @@ class MetricsEmitter:
         """
         assert measurement, "measurement can't be null"
         tags = tags.copy() if tags else {}
-        tags.update(self.default_tags)
+        for tagk, tagv in self.default_tags.items():
+            tags.setdefault(tagk, tagv)
+        for tagk, tagv in self.process_tags.items():
+            tags.setdefault(tagk, tagv)
         fields = fields.copy() if fields else {}
         if timestamp is None:
             timestamp = int(time.time())
-        # 支持自定义hostname
+        # 兼容旧参数，默认已为所有指标添加 hostname。
         if self.add_hostname and "hostname" not in tags:
             tags["hostname"] = self.hostname
         point = dict(measurement=measurement, tags=tags, fields=fields, time=timestamp)
@@ -596,7 +603,6 @@ class SpiderStatusReporter(threading.Thread):
         self._interval = interval
         self._stop_event = threading.Event()
         self._process = psutil.Process(os.getpid())
-        self._tags = {"hostname": socket.gethostname(), "pid": str(os.getpid())}
 
     def run(self):
         while not self._stop_event.is_set():
@@ -605,10 +611,9 @@ class SpiderStatusReporter(threading.Thread):
                     "heartbeat",
                     int(time.time()),
                     classify="runtime",
-                    tags=self._tags,
                 )
                 memory = int(round(self._process.memory_info().rss / 1024 / 1024))
-                emit_store("memory", memory, classify="runtime", tags=self._tags)
+                emit_store("memory", memory, classify="runtime")
             except Exception as e:
                 log.error(f"运行状态打点异常: {e}")
             self._stop_event.wait(self._interval)

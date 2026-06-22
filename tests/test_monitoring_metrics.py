@@ -88,3 +88,34 @@ def test_parser_control_task_status_count_uses_locked_snapshot():
     ParserControl.incr_task_status_count(failed=2, success=8, total=10)
 
     assert ParserControl.get_task_status_count() == (2, 8, 10)
+
+
+def test_metrics_points_include_process_tags_by_default():
+    emitter = metrics.MetricsEmitter(
+        FakeInfluxDBClient(),
+        default_tags={"project": "demo", "spider": "DemoSpider"},
+    )
+
+    point = emitter.get_counter_point("crawler", key="download_total", count=1)
+
+    assert point["tags"]["project"] == "demo"
+    assert point["tags"]["spider"] == "DemoSpider"
+    assert point["tags"]["hostname"]
+    assert point["tags"]["pid"]
+
+
+def test_metrics_explicit_process_tags_are_not_overridden():
+    emitter = metrics.MetricsEmitter(
+        FakeInfluxDBClient(),
+        default_tags={"project": "demo", "spider": "DemoSpider"},
+    )
+
+    point = emitter.get_counter_point(
+        "crawler",
+        key="download_total",
+        count=1,
+        tags={"hostname": "custom-host", "pid": "custom-pid"},
+    )
+
+    assert point["tags"]["hostname"] == "custom-host"
+    assert point["tags"]["pid"] == "custom-pid"
