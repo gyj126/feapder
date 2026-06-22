@@ -10,7 +10,9 @@ feapder 内置打点监控，运行时将请求下载、运行状态、响应耗
 | --- | --- |
 | `project` | 站点/项目名，默认取项目目录名，可在 `setting.py` 用 `PROJECT_NAME` 覆盖 |
 | `spider` | 爬虫名（爬虫类的 `name`） |
-| `_classify` | 指标分组：`document`（下载）、`http_status`（状态码分布）、`latency`（响应耗时）、`runtime`（运行状态，额外带 `hostname`/`pid` tag 区分进程实例）、`<表名>`（入库）、自定义分类 |
+| `hostname` | 进程所在主机，取本机内网 IP（探测失败时回退为机器名），所有指标均带 |
+| `pid` | 进程号，所有指标均带，用于区分同一主机上的多个进程实例 |
+| `_classify` | 指标分组：`document`（下载）、`http_status`（状态码分布）、`latency`（响应耗时）、`runtime`（运行状态）、`<表名>`（入库）、自定义分类 |
 | `_key` | 序列名（折线名） |
 | `_type` | `counter` / `timer` / `store` |
 
@@ -77,7 +79,7 @@ PROJECT_NAME = "taobao"
 
 ### 运行状态监控
 
-基于 `_classify='runtime'`，额外带 `hostname` / `pid` tag 区分进程实例。`hostname` 取本机内网 IP（探测失败时回退为机器名）。
+基于 `_classify='runtime'`，借助全局的 `hostname` / `pid` tag 区分进程实例。`hostname` 取本机内网 IP（探测失败时回退为机器名）。
 
 | 面板 | 对应指标 | 含义 |
 | --- | --- | --- |
