@@ -83,10 +83,28 @@ def install_test_stubs():
         sys.modules["dbutils"] = dbutils_module
         sys.modules["dbutils.pooled_db"] = pooled_db_module
 
-    if "influxdb" not in sys.modules:
-        influxdb_module = types.ModuleType("influxdb")
-        influxdb_module.InfluxDBClient = type("InfluxDBClient", (), {})
-        sys.modules["influxdb"] = influxdb_module
+    if "influxdb_client" not in sys.modules:
+        influxdb_client_module = types.ModuleType("influxdb_client")
+        influxdb_client_module.InfluxDBClient = type("InfluxDBClient", (), {})
+        influxdb_client_module.BucketRetentionRules = type(
+            "BucketRetentionRules", (), {}
+        )
+        sys.modules["influxdb_client"] = influxdb_client_module
+
+        client_pkg = types.ModuleType("influxdb_client.client")
+        sys.modules["influxdb_client.client"] = client_pkg
+        domain_pkg = types.ModuleType("influxdb_client.domain")
+        sys.modules["influxdb_client.domain"] = domain_pkg
+
+        write_api_module = types.ModuleType("influxdb_client.client.write_api")
+        write_api_module.SYNCHRONOUS = object()
+        sys.modules["influxdb_client.client.write_api"] = write_api_module
+
+        write_precision_module = types.ModuleType(
+            "influxdb_client.domain.write_precision"
+        )
+        write_precision_module.WritePrecision = type("WritePrecision", (), {"NS": "ns"})
+        sys.modules["influxdb_client.domain.write_precision"] = write_precision_module
 
     if "six" not in sys.modules:
         six_module = types.ModuleType("six")

@@ -113,15 +113,16 @@ KAFKA_FLUSH_TIMEOUT = 10
 - 新增运行状态打点：心跳、进程内存。
 - 新增 HTTP 状态码分布与响应耗时打点。
 - 支持 Grafana 中按项目、爬虫、主机、时间筛选。
-- 支持无认证 InfluxDB 1.x，初始化时允许 user/password 为空。
+- 基于 InfluxDB 2.x（org/bucket/token），Grafana 看板使用 Flux 查询。
 
 主要配置：
 
 ```python
 PROJECT_NAME = "your_project"
-INFLUXDB_HOST = "localhost"
-INFLUXDB_PORT = 8086
-INFLUXDB_DATABASE = "crawler"
+INFLUXDB_URL = "http://localhost:8086"
+INFLUXDB_TOKEN = "my-token"
+INFLUXDB_ORG = "my-org"
+INFLUXDB_BUCKET = "crawler"
 INFLUXDB_MEASUREMENT = "crawler"
 METRICS_RUNTIME_INTERVAL = 10
 ```

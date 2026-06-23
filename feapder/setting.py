@@ -248,17 +248,15 @@ OTHERS_LOG_LEVAL = "ERROR"  # 第三方库的log等级
 # 站点/项目名，用于监控按站点维度筛选，默认取项目目录名，可在项目 setting.py 中覆盖
 PROJECT_NAME = os.getenv("PROJECT_NAME") or os.path.basename(os.getcwd())
 
-# 打点监控 influxdb 配置
-INFLUXDB_HOST = os.getenv("INFLUXDB_HOST", "localhost")
-INFLUXDB_PORT = int(os.getenv("INFLUXDB_PORT", 8086))
-INFLUXDB_UDP_PORT = int(os.getenv("INFLUXDB_UDP_PORT", 8089))
-INFLUXDB_USER = os.getenv("INFLUXDB_USER")
-INFLUXDB_PASSWORD = os.getenv("INFLUXDB_PASSWORD")
-INFLUXDB_DATABASE = os.getenv("INFLUXDB_DB")
+# 打点监控 influxdb 2.x 配置
+INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
+INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
+INFLUXDB_ORG = os.getenv("INFLUXDB_ORG")
+INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "crawler")
 # 监控数据存储的表名（measurement），所有爬虫共用，通过 project/spider tag 区分
 INFLUXDB_MEASUREMENT = os.getenv("INFLUXDB_MEASUREMENT", "crawler")
 # 打点监控其他参数，若这里也配置了influxdb的参数, 则会覆盖外面的配置
-METRICS_OTHER_ARGS = dict(retention_policy_duration="180d", emit_interval=60)
+METRICS_OTHER_ARGS = dict(bucket_retention_duration="180d", emit_interval=60)
 # 运行状态打点（在线/运行时长/内存）上报间隔，单位秒
 METRICS_RUNTIME_INTERVAL = int(os.getenv("METRICS_RUNTIME_INTERVAL", 10))
 
