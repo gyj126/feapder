@@ -338,7 +338,7 @@ def init(
     influxdb_bucket=None,
     influxdb_measurement=None,
     bucket_retention_duration="180d",
-    emit_interval=60,
+    emit_interval=10,
     batch_size=100,
     debug=False,
     timeout=22000,
