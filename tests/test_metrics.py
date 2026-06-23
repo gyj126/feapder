@@ -4,12 +4,10 @@ from feapder.utils import metrics
 
 # 初始化打点系统
 metrics.init(
-    influxdb_host="localhost",
-    influxdb_port="8086",
-    influxdb_udp_port="8089",
-    influxdb_database="feapder",
-    influxdb_user="***",
-    influxdb_password="***",
+    influxdb_url="http://localhost:8086",
+    influxdb_token="***",
+    influxdb_org="feapder",
+    influxdb_bucket="feapder",
     influxdb_measurement="test_metrics",
     debug=True,
 )

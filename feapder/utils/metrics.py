@@ -11,7 +11,9 @@ from collections import Counter
 from typing import Any
 
 import psutil
-from influxdb import InfluxDBClient
+from influxdb_client import BucketRetentionRules, InfluxDBClient
+from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.domain.write_precision import WritePrecision
 
 from feapder import setting
 from feapder.utils.log import log
@@ -29,10 +31,11 @@ class MetricsEmitter:
         self,
         influxdb,
         *,
+        bucket=None,
+        org=None,
         batch_size=10,
         max_timer_seq=0,
         emit_interval=10,
-        retention_policy=None,
         ratio=1.0,
         debug=False,
         add_hostname=False,
@@ -41,11 +44,12 @@ class MetricsEmitter:
     ):
         """
         Args:
-            influxdb: influxdb instance
+            influxdb: influxdb 2.x client 实例
+            bucket: 写入的 bucket
+            org: 所属 org
             batch_size: 打点的批次大小
             max_timer_seq: 每个时间间隔内最多收集多少个 timer 类型点, 0 表示不限制
             emit_interval: 最多等待多长时间必须打点
-            retention_policy: 对应的 retention policy
             ratio: store 和 timer 类型采样率，比如 0.1 表示只有 10% 的点会留下
             debug: 是否打印调试日志
             add_hostname: 是否添加 hostname 作为 tag
@@ -54,6 +58,9 @@ class MetricsEmitter:
         self.pending_points = queue.Queue()
         self.batch_size = batch_size
         self.influxdb: InfluxDBClient = influxdb
+        self.write_api = influxdb.write_api(write_options=SYNCHRONOUS)
+        self.bucket = bucket
+        self.org = org
         self.tagkv = {}
         self.max_timer_seq = max_timer_seq
         self.lock = threading.Lock()
@@ -61,7 +68,6 @@ class MetricsEmitter:
         self.last_emit_ts = time.time()  # 上次提交时间
         self.emit_interval = emit_interval  # 提交间隔
         self.max_points = max_points
-        self.retention_policy = retention_policy  # 支持自定义保留策略
         self.debug = debug
         self.add_hostname = add_hostname
         self.ratio = ratio
@@ -187,12 +193,11 @@ class MetricsEmitter:
             if not points:
                 return
             try:
-                # h(hour) m(minutes), s(seconds), ms(milliseconds), u(microseconds), n(nanoseconds)
-                self.influxdb.write_points(
-                    points,
-                    batch_size=self.batch_size,
-                    time_precision="n",
-                    retention_policy=self.retention_policy,
+                self.write_api.write(
+                    bucket=self.bucket,
+                    org=self.org,
+                    record=points,
+                    write_precision=WritePrecision.NS,
                 )
             except Exception:
                 log.exception("error writing points")
@@ -206,6 +211,10 @@ class MetricsEmitter:
 
     def close(self):
         self.flush()
+        try:
+            self.write_api.close()
+        except Exception as e:
+            log.exception(e)
         try:
             self.influxdb.close()
         except Exception as e:
@@ -308,82 +317,69 @@ _measurement: str = None
 _init_signature = None
 
 
+def _duration_to_seconds(duration):
+    """将 180d / 24h / 30m / 60s / 2w 形式的保留时长转换为秒, 0 表示永久保留"""
+    if not duration:
+        return 0
+    if str(duration) == "0":
+        return 0
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    unit = str(duration)[-1].lower()
+    if unit not in units:
+        raise ValueError(f"invalid retention duration: {duration}")
+    return int(str(duration)[:-1]) * units[unit]
+
+
 def init(
     *,
-    influxdb_host=None,
-    influxdb_port=None,
-    influxdb_udp_port=None,
-    influxdb_database=None,
-    influxdb_user=None,
-    influxdb_password=None,
+    influxdb_url=None,
+    influxdb_token=None,
+    influxdb_org=None,
+    influxdb_bucket=None,
     influxdb_measurement=None,
-    retention_policy=None,
-    retention_policy_duration="180d",
+    bucket_retention_duration="180d",
     emit_interval=60,
     batch_size=100,
     debug=False,
-    use_udp=False,
-    timeout=22,
-    ssl=False,
-    retention_policy_replication: str = "1",
-    set_retention_policy_default=True,
+    timeout=22000,
     **kwargs,
 ):
     """
     打点监控初始化
     Args:
-        influxdb_host:
-        influxdb_port:
-        influxdb_udp_port:
-        influxdb_database:
-        influxdb_user:
-        influxdb_password:
-        influxdb_measurement: 存储的表，也可以在打点的时候指定
-        retention_policy: 保留策略
-        retention_policy_duration: 保留策略过期时间
+        influxdb_url: influxdb 2.x 地址, 如 http://localhost:8086
+        influxdb_token: 访问令牌
+        influxdb_org: 所属组织
+        influxdb_bucket: 写入的 bucket
+        influxdb_measurement: 存储的表, 也可以在打点的时候指定
+        bucket_retention_duration: bucket 保留时长, 如 180d, 0 表示永久
         emit_interval: 打点最大间隔
         batch_size: 打点的批次大小
         debug: 是否开启调试
-        use_udp: 是否使用udp协议打点
-        timeout: 与influxdb建立连接时的超时时间
-        ssl: 是否使用https协议
-        retention_policy_replication: 保留策略的副本数, 确保数据的可靠性和高可用性。如果一个节点发生故障，其他节点可以继续提供服务，从而避免数据丢失和服务不可用的情况
-        set_retention_policy_default: 是否设置为默认的保留策略，当retention_policy初次创建时有效
-        **kwargs: 可传递MetricsEmitter类的参数
+        timeout: 与 influxdb 建立连接时的超时时间, 单位毫秒
+        **kwargs: 可传递 MetricsEmitter 类的参数
 
     Returns:
 
     """
     global _inited_pid, _emitter, _measurement, _init_signature
 
-    influxdb_host = influxdb_host or setting.INFLUXDB_HOST
-    influxdb_port = influxdb_port or setting.INFLUXDB_PORT
-    influxdb_udp_port = influxdb_udp_port or setting.INFLUXDB_UDP_PORT
-    influxdb_database = influxdb_database or setting.INFLUXDB_DATABASE
-    influxdb_user = influxdb_user or setting.INFLUXDB_USER
-    influxdb_password = influxdb_password or setting.INFLUXDB_PASSWORD
+    influxdb_url = influxdb_url or setting.INFLUXDB_URL
+    influxdb_token = influxdb_token or setting.INFLUXDB_TOKEN
+    influxdb_org = influxdb_org or setting.INFLUXDB_ORG
+    influxdb_bucket = influxdb_bucket or setting.INFLUXDB_BUCKET
     measurement = influxdb_measurement or setting.INFLUXDB_MEASUREMENT
-    retention_policy = (
-        retention_policy or f"{influxdb_database}_{retention_policy_duration}"
-    )
     init_signature = (
-        influxdb_host,
-        influxdb_port,
-        influxdb_udp_port,
-        influxdb_database,
-        influxdb_user,
-        influxdb_password,
+        influxdb_url,
+        influxdb_token,
+        influxdb_org,
+        influxdb_bucket,
         measurement,
-        retention_policy,
-        retention_policy_duration,
+        bucket_retention_duration,
         emit_interval,
         batch_size,
         debug,
-        use_udp,
         timeout,
-        ssl,
-        retention_policy_replication,
-        set_retention_policy_default,
         repr(sorted(kwargs.items())),
     )
     if _inited_pid == os.getpid():
@@ -393,48 +389,42 @@ def init(
             )
         return
 
-    # 仅校验连接必需项，user/password 允许为空以支持无认证的 influxdb 1.x
-    if not all([influxdb_host, influxdb_port, influxdb_udp_port, influxdb_database]):
+    # 校验连接必需项, 缺失则跳过初始化
+    if not all([influxdb_url, influxdb_token, influxdb_org, influxdb_bucket]):
         return
 
     influxdb_client = InfluxDBClient(
-        host=influxdb_host,
-        port=influxdb_port,
-        udp_port=influxdb_udp_port,
-        database=influxdb_database,
-        use_udp=use_udp,
+        url=influxdb_url,
+        token=influxdb_token,
+        org=influxdb_org,
         timeout=timeout,
-        username=influxdb_user,
-        password=influxdb_password,
-        ssl=ssl,
     )
-    # 创建数据库
-    if influxdb_database:
-        try:
-            influxdb_client.create_database(influxdb_database)
-            retention_policies = influxdb_client.get_list_retention_policies(
-                influxdb_database
-            )
-            retention_policy_exists = any(
-                policy.get("name") == retention_policy
-                for policy in retention_policies
-            )
-            if not retention_policy_exists:
-                influxdb_client.create_retention_policy(
-                    retention_policy,
-                    retention_policy_duration,
-                    replication=retention_policy_replication,
-                    default=set_retention_policy_default,
+    # 自动创建 bucket（含保留策略）, 等价于 1.x 的自动建库 + 保留策略
+    # 注: 若 token 无 bucket 管理权限, 创建会失败, 此时假定 bucket 已存在并继续写入
+    try:
+        buckets_api = influxdb_client.buckets_api()
+        if not buckets_api.find_bucket_by_name(influxdb_bucket):
+            retention_seconds = _duration_to_seconds(bucket_retention_duration)
+            retention_rules = None
+            if retention_seconds:
+                retention_rules = BucketRetentionRules(
+                    type="expire",
+                    every_seconds=retention_seconds,
                 )
-        except Exception as e:
-            log.error("metrics init falied: {}".format(e))
-            return
+            buckets_api.create_bucket(
+                bucket_name=influxdb_bucket,
+                retention_rules=retention_rules,
+                org=influxdb_org,
+            )
+    except Exception as e:
+        log.warning(f"自动创建 bucket 失败, 将假定 bucket 已存在: {e}")
 
     _emitter = MetricsEmitter(
         influxdb_client,
+        bucket=influxdb_bucket,
+        org=influxdb_org,
         debug=debug,
         batch_size=batch_size,
-        retention_policy=retention_policy,
         emit_interval=emit_interval,
         **kwargs,
     )

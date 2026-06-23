@@ -1,6 +1,6 @@
 # feapder 监控（InfluxDB + Grafana）
 
-feapder 内置打点监控，运行时将请求下载、运行状态、响应耗时等指标写入 InfluxDB 1.x，再通过 Grafana 看板可视化。整套监控只需配置数据源地址、导入看板 JSON 即可使用。
+feapder 内置打点监控，运行时将请求下载、运行状态、响应耗时等指标写入 InfluxDB 2.x，再通过 Grafana 看板可视化。整套监控只需配置数据源地址、导入看板 JSON 即可使用。
 
 ## 数据模型
 
@@ -24,30 +24,29 @@ feapder 内置打点监控，运行时将请求下载、运行状态、响应耗
 
 ## 一、爬虫侧配置
 
-在项目 `setting.py` 或环境变量中配置 InfluxDB 连接（无认证时账号密码留空即可）：
+在项目 `setting.py` 或环境变量中配置 InfluxDB 2.x 连接：
 
 ```python
-INFLUXDB_HOST = "106.54.14.129"
-INFLUXDB_PORT = 8086
-INFLUXDB_DATABASE = "crawler"
-INFLUXDB_USER = ""
-INFLUXDB_PASSWORD = ""
+INFLUXDB_URL = "http://106.54.14.129:8086"
+INFLUXDB_TOKEN = "my-token"
+INFLUXDB_ORG = "my-org"
+INFLUXDB_BUCKET = "crawler"
 # 可选：自定义 measurement 名称，需与 Grafana 看板的 measurement 变量一致
 INFLUXDB_MEASUREMENT = "crawler"
 # 可选：站点名，默认取项目目录名
 PROJECT_NAME = "taobao"
 ```
 
-对应的环境变量为 `INFLUXDB_HOST` / `INFLUXDB_PORT` / `INFLUXDB_DB` / `INFLUXDB_USER` / `INFLUXDB_PASSWORD` / `INFLUXDB_MEASUREMENT` / `PROJECT_NAME`。
+对应的环境变量为 `INFLUXDB_URL` / `INFLUXDB_TOKEN` / `INFLUXDB_ORG` / `INFLUXDB_BUCKET` / `INFLUXDB_MEASUREMENT` / `PROJECT_NAME`。
 
-爬虫正常运行即会自动打点，数据库与保留策略（默认 180 天）会在首次运行时自动创建。
+爬虫正常运行即会自动打点，bucket（默认保留 180 天）会在首次运行时自动创建；若所用 token 无 bucket 管理权限，需先在 InfluxDB 中手动建好 bucket。
 
 ## 二、Grafana 配置数据源
 
 1. Grafana 进入 `Connections` -> `Data sources` -> `Add data source` -> `InfluxDB`。
-2. `Query Language` 选择 `InfluxQL`。
+2. `Query Language` 选择 `Flux`。
 3. `HTTP URL` 填 `http://106.54.14.129:8086`。
-4. `InfluxDB Details` 中 `Database` 填 `crawler`，无认证时 `User`/`Password` 留空。
+4. `InfluxDB Details` 中填写 `Organization`、`Token`，`Default Bucket` 填 `crawler`。
 5. 保存并测试连接。
 
 ## 三、导入看板
@@ -56,7 +55,7 @@ PROJECT_NAME = "taobao"
 2. 上传 `dashboards/feapder-crawler.json`。
 3. 在 `DS_INFLUXDB` 处选择上一步创建的数据源，完成导入。
 
-导入后顶部有 站点(`project`) -> 爬虫(`spider`) -> 时间 的级联筛选，默认时间范围为过去 30 分钟；若 `INFLUXDB_MEASUREMENT` 改过名，需同步修改看板顶部 `measurement` 变量。
+导入后顶部有 站点(`project`) -> 爬虫(`spider`) -> 时间 的级联筛选，默认时间范围为过去 30 分钟。看板内置 `bucket` 与 `measurement` 两个常量变量（默认均为 `crawler`），若 `INFLUXDB_BUCKET` 或 `INFLUXDB_MEASUREMENT` 改过名，需同步修改看板顶部对应变量。
 
 ## 看板面板
 
@@ -159,12 +158,12 @@ PROJECT_NAME = "taobao"
 实现要点：
 
 - 查询使用顶部时间筛选作为展示范围。
-- InfluxQL 内层按 1 分钟分桶求和，外层使用 `moving_average(..., 5)` 计算固定 5 分钟滚动聚合。
+- Flux 先用 `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再用 `timedMovingAverage(every: 1m, period: 5m)` 计算固定 5 分钟滚动聚合。
 - **图例 Last / 最右端点** 表示最新 5 分钟窗口值，不等同于整个顶部筛选范围的汇总比率。
 
 ### 状态码趋势（5 分钟窗口占比）
 
-按 5 分钟窗口展示 2xx / 3xx / 4xx / 5xx 在 HTTP 响应总量中的占比。实现上先用 InfluxQL 按 1 分钟分桶求和，再通过 `moving_average(..., 5)` 生成固定 5 分钟窗口值，最后计算各状态码段占比。
+按 5 分钟窗口展示 2xx / 3xx / 4xx / 5xx 在 HTTP 响应总量中的占比。实现上先用 Flux `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再通过 `timedMovingAverage(every: 1m, period: 5m)` 生成固定 5 分钟窗口值，最后由看板 transformations 计算各状态码段占比。
 
 ## 自定义打点
 
