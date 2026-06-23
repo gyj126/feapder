@@ -377,41 +377,11 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_success$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> sum()\n  |> map(fn: (r) => ({ _time: v.timeRangeStop, success: r._value }))",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_total$/ or r[\"_key\"] =~ /:download_success$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> map(fn: (r) => ({ r with metric: if r[\"_key\"] =~ /:download_success$/ then \"success\" else \"total\" }))\n  |> group(columns: [\"metric\"])\n  |> sum()\n  |> map(fn: (r) => ({ metric: r.metric, _value: r._value, g: \"1\" }))\n  |> pivot(rowKey: [\"g\"], columnKey: [\"metric\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ _value: if exists r.success and exists r.total and r.total > 0 then float(v: r.success) / float(v: r.total) else 0.0 }))",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_total$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> sum()\n  |> map(fn: (r) => ({ _time: v.timeRangeStop, total: r._value }))",
-          "refId": "B"
         }
       ],
       "title": "下载成功率",
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "Time",
-            "mode": "outer"
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "成功率",
-            "binary": {
-              "left": "success",
-              "operator": "/",
-              "right": "total"
-            },
-            "mode": "binary",
-            "replaceFields": true
-          }
-        }
-      ],
       "type": "stat"
     },
     {
@@ -545,97 +515,12 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_total$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_total_5m\"})",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_total$/ or r[\"_key\"] =~ /:download_success$/ or r[\"_key\"] =~ /:download_exception$/ or r[\"_key\"] =~ /:parser_exception$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> map(fn: (r) => ({ r with metric: if r[\"_key\"] =~ /:download_success$/ then \"success\" else if r[\"_key\"] =~ /:download_exception$/ then \"dexc\" else if r[\"_key\"] =~ /:parser_exception$/ then \"pexc\" else \"total\" }))\n  |> group(columns: [\"metric\"])\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\", \"metric\"])\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"metric\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      total = if exists r.total then r.total else 0.0\n      success = if exists r.success then r.success else 0.0\n      dexc = if exists r.dexc then r.dexc else 0.0\n      pexc = if exists r.pexc then r.pexc else 0.0\n      return { _time: r._time, \"下载成功率\": if total > 0.0 then success / total else 0.0, \"下载异常率\": if total > 0.0 then dexc / total else 0.0, \"解析异常率\": if total > 0.0 then pexc / total else 0.0 }\n  })",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_success$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_success_5m\"})",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:download_exception$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_download_exception_5m\"})",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"document\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /:parser_exception$/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_parser_exception_5m\"})",
-          "refId": "D"
         }
       ],
       "title": "请求下载趋势",
-      "type": "timeseries",
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "Time",
-            "mode": "outer"
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "下载成功率",
-            "binary": {
-              "left": "raw_success_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "下载异常率",
-            "binary": {
-              "left": "raw_download_exception_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "解析异常率",
-            "binary": {
-              "left": "raw_parser_exception_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "raw_total_5m": true,
-              "raw_success_5m": true,
-              "raw_download_exception_5m": true,
-              "raw_parser_exception_5m": true
-            },
-            "indexByName": {},
-            "renameByName": {}
-          }
-        }
-      ]
+      "type": "timeseries"
     },
     {
       "collapsed": false,
@@ -670,26 +555,17 @@
           },
           "mappings": [
             {
-              "type": "range",
+              "type": "value",
               "options": {
-                "from": 0,
-                "to": 0,
-                "result": {
-                  "color": "red",
-                  "index": 0,
-                  "text": "离线"
-                }
-              }
-            },
-            {
-              "type": "range",
-              "options": {
-                "from": 1,
-                "to": 1000000,
-                "result": {
+                "在线": {
                   "color": "green",
-                  "index": 1,
+                  "index": 0,
                   "text": "在线"
+                },
+                "离线": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "离线"
                 }
               }
             }
@@ -698,12 +574,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
-                "value": null
-              },
-              {
                 "color": "green",
-                "value": 1
+                "value": null
               }
             ]
           },
@@ -822,7 +694,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -60s)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"runtime\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_value\")\n  |> filter(fn: (r) => r[\"_key\"] == \"heartbeat\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"spider\", \"hostname\", \"pid\"])\n  |> count()",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: -60s)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"runtime\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_value\")\n  |> filter(fn: (r) => r[\"_key\"] == \"heartbeat\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"spider\", \"hostname\", \"pid\"])\n  |> count()\n  |> group()\n  |> map(fn: (r) => ({ name: r.spider, host: r.hostname, pid: r.pid, status: if r._value > 0 then \"在线\" else \"离线\" }))",
           "refId": "A"
         }
       ],
@@ -830,35 +702,16 @@
       "type": "table",
       "transformations": [
         {
-          "id": "reduce",
-          "options": {
-            "includeTimeField": false,
-            "labelsToFields": true,
-            "mode": "seriesToRows",
-            "reducers": [
-              "lastNotNull"
-            ]
-          }
-        },
-        {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "Field": true
-            },
+            "excludeByName": {},
             "indexByName": {
-              "spider": 0,
-              "hostname": 1,
+              "name": 0,
+              "host": 1,
               "pid": 2,
-              "Last": 3
+              "status": 3
             },
-            "renameByName": {
-              "spider": "name",
-              "hostname": "host",
-              "pid": "pid",
-              "Last *": "status"
-            }
+            "renameByName": {}
           }
         }
       ]
@@ -913,7 +766,8 @@
               }
             ]
           },
-          "unit": "decmbytes"
+          "unit": "decmbytes",
+          "displayName": "${__field.labels.spider} (${__field.labels.hostname}:${__field.labels.pid})"
         },
         "overrides": []
       },
@@ -946,7 +800,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"runtime\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_value\")\n  |> filter(fn: (r) => r[\"_key\"] == \"memory\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"spider\", \"hostname\", \"pid\"])\n  |> aggregateWindow(every: 10s, fn: last, createEmpty: false)",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"runtime\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_value\")\n  |> filter(fn: (r) => r[\"_key\"] == \"memory\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"spider\", \"hostname\", \"pid\"])\n  |> aggregateWindow(every: 10s, fn: last, createEmpty: false)\n  |> drop(columns: [\"_start\", \"_stop\"])",
           "refId": "A"
         }
       ],
@@ -1020,7 +874,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"_key\"])\n  |> sum()",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"_key\"])\n  |> sum()\n  |> group()\n  |> map(fn: (r) => ({ _value: r._value, _key: r._key, g: \"1\" }))\n  |> pivot(rowKey: [\"g\"], columnKey: [\"_key\"], valueColumn: \"_value\")\n  |> drop(columns: [\"g\"])",
           "refId": "A"
         }
       ],
@@ -1089,41 +943,11 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /^2/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> sum()\n  |> map(fn: (r) => ({ _time: v.timeRangeStop, success: r._value }))",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> map(fn: (r) => ({ r with metric: if r[\"_key\"] =~ /^2/ then \"success\" else \"other\" }))\n  |> group(columns: [\"metric\"])\n  |> sum()\n  |> map(fn: (r) => ({ metric: r.metric, _value: r._value, g: \"1\" }))\n  |> pivot(rowKey: [\"g\"], columnKey: [\"metric\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      success = if exists r.success then r.success else 0\n      other = if exists r.other then r.other else 0\n      total = success + other\n      return { _value: if total > 0 then float(v: success) / float(v: total) else 0.0 }\n  })",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> sum()\n  |> map(fn: (r) => ({ _time: v.timeRangeStop, total: r._value }))",
-          "refId": "B"
         }
       ],
       "title": "请求成功率",
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "Time",
-            "mode": "outer"
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "请求成功率",
-            "binary": {
-              "left": "success",
-              "operator": "/",
-              "right": "total"
-            },
-            "mode": "binary",
-            "replaceFields": true
-          }
-        }
-      ],
       "type": "stat"
     },
     {
@@ -1271,119 +1095,12 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_total_5m\"})",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> map(fn: (r) => ({ r with metric: if r[\"_key\"] =~ /^2/ then \"h2\" else if r[\"_key\"] =~ /^3/ then \"h3\" else if r[\"_key\"] =~ /^4/ then \"h4\" else if r[\"_key\"] =~ /^5/ then \"h5\" else \"other\" }))\n  |> group(columns: [\"metric\"])\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\", \"metric\"])\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"metric\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      h2 = if exists r.h2 then r.h2 else 0.0\n      h3 = if exists r.h3 then r.h3 else 0.0\n      h4 = if exists r.h4 then r.h4 else 0.0\n      h5 = if exists r.h5 then r.h5 else 0.0\n      other = if exists r.other then r.other else 0.0\n      total = h2 + h3 + h4 + h5 + other\n      return { _time: r._time, \"2xx\": if total > 0.0 then h2 / total else 0.0, \"3xx\": if total > 0.0 then h3 / total else 0.0, \"4xx\": if total > 0.0 then h4 / total else 0.0, \"5xx\": if total > 0.0 then h5 / total else 0.0 }\n  })",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /^2/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_2xx_5m\"})",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /^3/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_3xx_5m\"})",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /^4/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_4xx_5m\"})",
-          "refId": "D"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${DS_INFLUXDB}"
-          },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"http_status\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_count\")\n  |> filter(fn: (r) => r[\"_key\"] =~ /^5/)\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group()\n  |> aggregateWindow(every: 1m, fn: sum, createEmpty: true)\n  |> toFloat()\n  |> fill(value: 0.0)\n  |> timedMovingAverage(every: 1m, period: 5m)\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> rename(columns: {_value: \"raw_5xx_5m\"})",
-          "refId": "E"
         }
       ],
       "title": "状态码趋势",
-      "type": "timeseries",
-      "transformations": [
-        {
-          "id": "joinByField",
-          "options": {
-            "byField": "Time",
-            "mode": "outer"
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "2xx",
-            "binary": {
-              "left": "raw_2xx_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "3xx",
-            "binary": {
-              "left": "raw_3xx_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "4xx",
-            "binary": {
-              "left": "raw_4xx_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "alias": "5xx",
-            "binary": {
-              "left": "raw_5xx_5m",
-              "operator": "/",
-              "right": "raw_total_5m"
-            },
-            "mode": "binary",
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "raw_total_5m": true,
-              "raw_2xx_5m": true,
-              "raw_3xx_5m": true,
-              "raw_4xx_5m": true,
-              "raw_5xx_5m": true
-            },
-            "indexByName": {},
-            "renameByName": {}
-          }
-        }
-      ]
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1468,7 +1185,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUXDB}"
           },
-          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"latency\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_duration\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"_key\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: (tables=<-, column) => tables |> quantile(q: 0.95, method: \"estimate_tstd\"), createEmpty: false)",
+          "query": "from(bucket: \"${bucket}\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"${measurement}\")\n  |> filter(fn: (r) => r[\"_classify\"] == \"latency\")\n  |> filter(fn: (r) => r[\"_field\"] == \"_duration\")\n  |> filter(fn: (r) => r[\"project\"] =~ /^${project:regex}$/ and r[\"spider\"] =~ /^${spider:regex}$/ and r[\"hostname\"] =~ /^${host:regex}$/)\n  |> group(columns: [\"_key\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: (tables=<-, column) => tables |> quantile(q: 0.95, method: \"estimate_tdigest\", column: column), createEmpty: false)",
           "refId": "A"
         }
       ],
@@ -1488,21 +1205,21 @@
       {
         "current": {
           "selected": false,
-          "text": "crawler_data",
-          "value": "crawler_data"
+          "text": "crawler",
+          "value": "crawler"
         },
         "description": "InfluxDB bucket 名称，需与 setting.INFLUXDB_BUCKET 一致",
-        "hide": 0,
+        "hide": 2,
         "label": "bucket",
         "name": "bucket",
         "options": [
           {
             "selected": true,
-            "text": "crawler_data",
-            "value": "crawler_data"
+            "text": "crawler",
+            "value": "crawler"
           }
         ],
-        "query": "crawler_data",
+        "query": "crawler",
         "skipUrlSync": false,
         "type": "constant"
       },
@@ -1513,7 +1230,7 @@
           "value": "crawler"
         },
         "description": "InfluxDB measurement 名称，需与 setting.INFLUXDB_MEASUREMENT 一致",
-        "hide": 0,
+        "hide": 2,
         "label": "measurement",
         "name": "measurement",
         "options": [
@@ -1601,8 +1318,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "feapder 爬虫监控",
-  "uid": "feapder-crawler",
+  "title": "爬虫监控",
+  "uid": "crawler",
   "version": 1,
   "weekStart": ""
 }

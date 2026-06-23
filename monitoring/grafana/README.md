@@ -55,7 +55,7 @@ PROJECT_NAME = "taobao"
 2. 上传 `dashboards/feapder-crawler.json`。
 3. 在 `DS_INFLUXDB` 处选择上一步创建的数据源，完成导入。
 
-导入后顶部有 站点(`project`) -> 爬虫(`spider`) -> 时间 的级联筛选，默认时间范围为过去 30 分钟。看板内置 `bucket` 与 `measurement` 两个常量变量（默认均为 `crawler`），若 `INFLUXDB_BUCKET` 或 `INFLUXDB_MEASUREMENT` 改过名，需同步修改看板顶部对应变量。
+导入后顶部有 站点(`project`) -> 爬虫(`spider`) -> 主机(`host`) -> 时间 的级联筛选，默认时间范围为过去 30 分钟。看板内置 `bucket` 与 `measurement` 两个常量变量（默认隐藏，不在顶部展示），若 `INFLUXDB_BUCKET` 或 `INFLUXDB_MEASUREMENT` 改过名，需在 `Dashboard settings` -> `Variables` 中修改这两个变量的值。
 
 ## 看板面板
 
@@ -158,12 +158,13 @@ PROJECT_NAME = "taobao"
 实现要点：
 
 - 查询使用顶部时间筛选作为展示范围。
-- Flux 先用 `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再用 `timedMovingAverage(every: 1m, period: 5m)` 计算固定 5 分钟滚动聚合。
+- 单条 Flux 查询按 `metric`（total/success/dexc/pexc）分组，先用 `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再用 `timedMovingAverage(every: 1m, period: 5m)` 计算固定 5 分钟滚动聚合，最后 `pivot` 成宽表并在 Flux 中直接算出三条比率折线（不再依赖 Grafana transformations）。
+- 当某窗口 `total` 为 0 时比率取 0，避免除零产生 NaN/Inf 导致折线断点。
 - **图例 Last / 最右端点** 表示最新 5 分钟窗口值，不等同于整个顶部筛选范围的汇总比率。
 
 ### 状态码趋势（5 分钟窗口占比）
 
-按 5 分钟窗口展示 2xx / 3xx / 4xx / 5xx 在 HTTP 响应总量中的占比。实现上先用 Flux `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再通过 `timedMovingAverage(every: 1m, period: 5m)` 生成固定 5 分钟窗口值，最后由看板 transformations 计算各状态码段占比。
+按 5 分钟窗口展示 2xx / 3xx / 4xx / 5xx 在 HTTP 响应总量中的占比。实现上单条 Flux 查询按状态码段分组，先用 `aggregateWindow(every: 1m, fn: sum)` 按 1 分钟分桶求和，再通过 `timedMovingAverage(every: 1m, period: 5m)` 生成固定 5 分钟窗口值，最后 `pivot` 成宽表并在 Flux 中直接算出各状态码段占比（不再依赖 Grafana transformations）。
 
 ## 自定义打点
 
