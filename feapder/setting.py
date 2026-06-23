@@ -245,8 +245,8 @@ os.environ["LOGURU_FORMAT"] = (
 )
 OTHERS_LOG_LEVAL = "ERROR"  # 第三方库的log等级
 
-# 站点/项目名，用于监控按站点维度筛选，默认取项目目录名，可在项目 setting.py 中覆盖
-PROJECT_NAME = os.getenv("PROJECT_NAME") or os.path.basename(os.getcwd())
+# 站点/项目名占位，最终值在导入用户 setting 后确定（见文件末尾）
+PROJECT_NAME = os.getenv("PROJECT_NAME")
 
 # 打点监控 influxdb 2.x 配置
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
@@ -262,7 +262,12 @@ METRICS_RUNTIME_INTERVAL = int(os.getenv("METRICS_RUNTIME_INTERVAL", 10))
 
 ############# 导入用户自定义的setting #############
 try:
+    import setting as _user_setting
     from setting import *
+
+    # 项目名未显式配置时，取用户 setting.py 所在目录名（用户显式配置 > 环境变量 > setting.py 目录名）
+    if not PROJECT_NAME:
+        PROJECT_NAME = os.path.basename(os.path.dirname(_user_setting.__file__))
 
     # 兼容老版本的配置
     KEEP_ALIVE = not AUTO_STOP_WHEN_SPIDER_DONE

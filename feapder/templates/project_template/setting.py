@@ -188,6 +188,15 @@
 # WARNING_SUCCESS_RATE = 0.8  # 请求成功率低于WARNING_SUCCESS_RATE则报警
 # WARNING_SUCCESS_RATE_MIN_COUNT = 100  # 请求成功率报警最小统计样本数，低于此值不报警
 #
+# # 打点监控 InfluxDB 2.x + Grafana
+# INFLUXDB_URL = "http://localhost:8086"  # InfluxDB 2.x 地址
+# INFLUXDB_TOKEN = ""  # 访问令牌
+# INFLUXDB_ORG = ""  # 所属组织
+# INFLUXDB_BUCKET = "crawler"  # 写入的 bucket
+# INFLUXDB_MEASUREMENT = "crawler"  # measurement 名，需与 Grafana 看板变量一致
+# PROJECT_NAME = ""  # 站点/项目名，不配则默认取本 setting.py 所在目录名
+# METRICS_RUNTIME_INTERVAL = 10  # 运行状态（心跳/内存）上报间隔，单位秒
+#
 # LOG_NAME = os.path.basename(os.getcwd())
 # LOG_PATH = "log/%s.log" % LOG_NAME  # log存储路径
 # LOG_LEVEL = "DEBUG"
