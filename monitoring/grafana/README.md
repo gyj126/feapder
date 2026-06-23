@@ -8,7 +8,7 @@ feapder 内置打点监控，运行时将请求下载、运行状态、响应耗
 
 | tag | 含义 |
 | --- | --- |
-| `project` | 站点/项目名，默认取项目目录名，可在 `setting.py` 用 `PROJECT_NAME` 覆盖 |
+| `project` | 站点/项目名，默认取用户 setting.py 所在目录名，可在 `setting.py` 用 `PROJECT_NAME` 覆盖 |
 | `spider` | 爬虫名（爬虫类的 `name`） |
 | `hostname` | 进程所在主机，取本机内网 IP（探测失败时回退为机器名），所有指标均带 |
 | `pid` | 进程号，所有指标均带，用于区分同一主机上的多个进程实例 |
@@ -33,7 +33,7 @@ INFLUXDB_ORG = "my-org"
 INFLUXDB_BUCKET = "crawler"
 # 可选：自定义 measurement 名称，需与 Grafana 看板的 measurement 变量一致
 INFLUXDB_MEASUREMENT = "crawler"
-# 可选：站点名，默认取项目目录名
+# 可选：站点名，默认取用户 setting.py 所在目录名
 PROJECT_NAME = "taobao"
 ```
 
