@@ -256,7 +256,7 @@ INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "crawler")
 # 监控数据存储的表名（measurement），所有爬虫共用，通过 project/spider tag 区分
 INFLUXDB_MEASUREMENT = os.getenv("INFLUXDB_MEASUREMENT", "crawler")
 # 打点监控其他参数，若这里也配置了influxdb的参数, 则会覆盖外面的配置
-METRICS_OTHER_ARGS = dict(bucket_retention_duration="180d", emit_interval=60)
+METRICS_OTHER_ARGS = dict(bucket_retention_duration="180d", emit_interval=10)
 # 运行状态打点（在线/运行时长/内存）上报间隔，单位秒
 METRICS_RUNTIME_INTERVAL = int(os.getenv("METRICS_RUNTIME_INTERVAL", 10))
 
