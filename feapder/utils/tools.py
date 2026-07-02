@@ -15,6 +15,7 @@ import configparser  # 读配置文件的
 import datetime
 import functools
 import hashlib
+from decimal import Decimal
 import hmac
 import html
 import importlib
@@ -2196,6 +2197,9 @@ def format_sql_value(value):
 
     elif isinstance(value, bool):
         value = int(value)
+
+    elif isinstance(value, Decimal):
+        value = float(value)
 
     return value
 
