@@ -59,6 +59,7 @@ class KafkaPipeline(BasePipeline):
         self._failed_count = 0
 
         try:
+            messages = []
             for item in items:
                 message = item["message"]
                 key = item.get("key")
@@ -70,11 +71,10 @@ class KafkaPipeline(BasePipeline):
                 else:
                     value = json.dumps(message, ensure_ascii=False).encode("utf-8")
 
-                key_bytes = key.encode("utf-8") if isinstance(key, str) else key
+                key = key.encode("utf-8") if isinstance(key, str) else key
+                messages.append({"key": key, "value": value})
 
-                self.producer.produce(topic=table, value=value, key=key_bytes, callback=self.delivery_callback)
-                self.producer.poll(0)
-
+            self.producer.produce_batch(table, messages, on_delivery=self.delivery_callback)
             remain_count = self.producer.flush(timeout=setting.KAFKA_FLUSH_TIMEOUT)
 
             datas_size = len(items)
