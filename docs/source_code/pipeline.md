@@ -24,7 +24,7 @@ ITEM_PIPELINES = [
 
 ### KafkaPipeline说明
 
-KafkaPipeline基于`confluent-kafka`库，将爬虫数据批量发送到Kafka topic（`produce_batch`）。需配合`KafkaItem`使用，通过`message`字段设置消息内容，通过`key`字段设置消息key。
+KafkaPipeline基于`confluent-kafka`库，将爬虫数据发送到Kafka topic。需配合`KafkaItem`使用，通过`message`字段设置消息内容，通过`key`字段设置消息key。
 
 **依赖安装：**
 
