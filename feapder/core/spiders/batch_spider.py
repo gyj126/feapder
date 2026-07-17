@@ -1166,7 +1166,6 @@ class DebugBatchSpider(BatchSpider):
         @result:
         """
         if self._update_task:
-            kwargs["id"] = task_id
             kwargs[self._task_state] = state
 
             sql = tools.make_update_sql(
