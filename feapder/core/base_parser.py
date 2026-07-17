@@ -160,7 +160,6 @@ class TaskParser(BaseParser):
         @result:
         """
 
-        kwargs["id"] = task_id
         kwargs[self._task_state] = state
 
         sql = tools.make_update_sql(

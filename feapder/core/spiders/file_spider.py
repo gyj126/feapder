@@ -922,7 +922,6 @@ class DebugFileSpider(FileSpider):
 
     def update_task_state(self, task_id, state=1, *args, **kwargs):
         if self._update_task:
-            kwargs["id"] = task_id
             kwargs[self._task_state] = state
 
             sql = tools.make_update_sql(
