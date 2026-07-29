@@ -204,6 +204,7 @@ class FileSpider(TaskSpider):
         if "callback" in kwargs and kwargs["callback"] is not self.save_file:
             log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
         kwargs["callback"] = self.save_file
+        kwargs["stream"] = True
         request = Request(
             url,
             task=task,
