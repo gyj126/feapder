@@ -237,6 +237,7 @@ class FileParser(TaskParser):
             log.warning("download_request 的 callback 将被强制设为 save_file，用户传入的回调被忽略")
         if save_file is not None:
             kwargs["callback"] = save_file
+        kwargs["stream"] = True
         return Request(
             url,
             task=task,
