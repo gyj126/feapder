@@ -459,7 +459,7 @@ class ParserControl(threading.Thread):
                         request.render_downloader.put_back(response.browser)
 
                     # 释放连接（stream=True 时未消费完 body 会占用连接池）
-                    if response and hasattr(response, "close"):
+                    if response is not None and hasattr(response, "close"):
                         try:
                             response.close()
                         except Exception:
@@ -854,7 +854,7 @@ class AirSpiderParserControl(ParserControl):
                         request.render_downloader.put_back(response.browser)
 
                     # 释放连接（stream=True 时未消费完 body 会占用连接池）
-                    if response and hasattr(response, "close"):
+                    if response is not None and hasattr(response, "close"):
                         try:
                             response.close()
                         except Exception:
