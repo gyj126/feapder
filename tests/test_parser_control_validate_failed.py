@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import feapder.setting as setting
 from feapder.core.base_parser import BaseParser
 from feapder.core.parser_control import AirSpiderParserControl, ParserControl
@@ -55,8 +57,11 @@ class ValidateFalseParser(BaseParser):
         return self.failed_results
 
 
-def build_response(url):
-    return Response.from_text("<html><title>ok</title></html>", url=url)
+def build_response(url, status_code=200):
+    response = Response.from_text("<html><title>ok</title></html>", url=url)
+    response.status_code = status_code
+    response.close = Mock()
+    return response
 
 
 def build_request(url, parser_name, response):
@@ -91,7 +96,8 @@ def test_spider_validate_false_dispatch_request():
     controller = ParserControl(None, "test:key", request_buffer, item_buffer)
     controller.add_parser(parser)
 
-    request = build_request("https://example.com/a", parser.name, build_response("https://example.com/a"))
+    response = build_response("https://example.com/a", status_code=404)
+    request = build_request("https://example.com/a", parser.name, response)
     controller.deal_request({"request_obj": request, "request_redis": None})
 
     assert parser.failed_called is True
@@ -102,6 +108,7 @@ def test_spider_validate_false_dispatch_request():
     assert request_buffer.requests == []
     assert item_buffer.items == []
     assert ParserControl._failed_task_count == 1
+    response.close.assert_called_once_with()
 
 
 def test_spider_validate_false_dispatch_item_and_callback():
@@ -152,13 +159,15 @@ def test_air_spider_validate_false_dispatch_request():
     )
     controller.add_parser(parser)
 
-    request = build_request("https://example.com/d", parser.name, build_response("https://example.com/d"))
+    response = build_response("https://example.com/d", status_code=500)
+    request = build_request("https://example.com/d", parser.name, response)
     controller.deal_request(request)
 
     assert request_buffer.requests == [next_request]
     assert next_request.parser_name == parser.name
     assert item_buffer.items == []
     assert AirSpiderParserControl._failed_task_count == 1
+    response.close.assert_called_once_with()
 
 
 def test_air_spider_validate_false_dispatch_item_and_callback():
