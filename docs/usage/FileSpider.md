@@ -103,7 +103,7 @@ save_file (框架层，不应重写)
   │     ├── return True/None: 成功 → 写 result/dedup → on_file_downloaded(request)
   │     ├── return False: 显式失败 → 计入 fail → on_file_failed(request, error)
   │     └── raise: 触发重试
-  ├── 关闭响应 (自动，process_file 结束即释放连接)
+  ├── 响应由请求调度层在链路结束时自动关闭
   ├── Redis 进度追踪 (自动，幂等计数)
   └── 检查是否所有文件完成
         └── on_task_all_done(task, result, stats) (用户实现)
@@ -125,7 +125,7 @@ save_file (框架层，不应重写)
 
 `process_file(request, response)` 是"落地动作"，**不返回路径**——路径以 `file_path()` 的返回值为准（即 `request.file_path`）。
 
-**响应由框架关闭**：`process_file` 返回或抛异常后，框架都会立刻 `response.close()` 释放连接，用户不需要自己写 `try/finally`。
+**响应由框架关闭**：直链模式由 `ParserControl`、接口模式由同步下载链路在请求处理结束时统一释放响应与浏览器资源，用户不需要在 `process_file` 中写 `try/finally`。
 
 **返回值语义**:
 
@@ -311,8 +311,7 @@ flowchart TD
 
 ### 接口模式的约束
 
-- **回调必须 yield 恰好一个 `download_request`**：0 个或多个都会抛异常。一个槽位对应一个文件，这是进度追踪的前提。
-- **回调里不能 yield 普通 `Request`**：框架不支持超过两步的链路（接口 A → 接口 B → 直链）。如确有多跳需求，需在槽位请求的 `download_midware` 里自行完成前置跳转。
+- **回调只能 yield 恰好一个 `download_request`**：0 个或多个都会抛异常；`Item`、callable、普通 `Request` 及其他产物同样不支持。一个槽位对应一个文件，这是进度追踪的前提。如确有多跳需求，需在槽位请求的 `download_midware` 里自行完成前置跳转。
 - **`file_path` 在派发期调用**：此时还没请求下载接口，因此路径只能由任务表字段和挂在槽位请求上的自定义字段推导，**拿不到接口响应里的文件名**。默认 `file_path` 实现会从 `request.url` 解析文件名，在接口模式下没有意义，必须重写：
 
 ```python
@@ -322,7 +321,6 @@ def file_path(self, request):
 
 - **启用 `file_dedup` 时必须提供去重键**：接口地址在各文件间往往完全相同，不能作为文件身份。未通过 `dedup_key=` 参数或 `dedup_key()` 钩子提供去重键时，框架会直接抛 `ValueError`。未启用 `file_dedup` 时该槽位不参与任何去重（既不参与任务内去重，也不查缓存）。
 - **去重键声明在槽位请求上**：派发期就要用它查缓存，因此不能在回调里的 `download_request` 上再传 `dedup_key`，否则写入键与查询键不一致导致缓存永不命中，框架会直接抛 `ValueError`。
-- **回调产出的 `Item` 在文件下载成功后才分发**：下载失败会让整个槽位请求重试并**再次执行回调**，因此框架把回调产出的 `Item`／回调函数缓冲起来，等下载成功后才一并分发。下载失败时一个都不分发，重试不会造成同一批 `Item` 重复入库。
 - **`download_midware` 返回的新请求不会被采纳**：与直链模式一致，中间件即使返回一个全新的 `Request`，后续链路仍使用原下载请求，避免替换后丢失框架注入的 `task_id`/`index`/`file_path`/`dedup_key` 与请求级 `validate`。需要修改请求时请**原地修改并返回原对象**（或返回 `(request, response)` 元组自行接管下载）。
 
 ### 按请求指定校验函数

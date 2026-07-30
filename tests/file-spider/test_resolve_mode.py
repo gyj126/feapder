@@ -12,7 +12,7 @@ FileSpider 接口模式（两步链路）与流式原语单元测试
 - 去重缓存命中时完全不派发请求（连接口都不调）
 - 下载响应在校验抛异常时仍被关闭、浏览器仍被归还
 - download_midware 返回新请求时不替换原下载请求，槽位上下文完整
-- 回调副产物在下载成功后才分发，下载失败一个都不分发
+- 接口回调只允许产出唯一的 download_request
 - file_chunks 的零字节校验与响应关闭
 """
 
@@ -99,11 +99,13 @@ class DummyResponse:
         status_code=200,
         chunks=(b"payload",),
         browser=None,
+        close_error=None,
     ):
         self.url = url
         self.status_code = status_code
         self._chunks = chunks
         self.browser = browser
+        self.close_error = close_error
         self.closed = False
         self.close_count = 0
 
@@ -113,14 +115,19 @@ class DummyResponse:
     def close(self):
         self.closed = True
         self.close_count += 1
+        if self.close_error:
+            raise self.close_error
 
 
 class DummyRenderDownloader:
-    def __init__(self):
+    def __init__(self, put_back_error=None):
+        self.put_back_error = put_back_error
         self.put_back_calls = []
 
     def put_back(self, browser):
         self.put_back_calls.append(browser)
+        if self.put_back_error:
+            raise self.put_back_error
 
 
 class DummyParser:
@@ -394,30 +401,50 @@ class TestOnSlotResponse(unittest.TestCase):
         request = slot_request(self.spider, self.task)
         self.spider.parse_api = lambda req, resp: iter([Request("https://api.example.com/next")])
 
-        with self.assertRaises(Exception) as ctx:
+        with self.assertRaises(TypeError) as ctx:
             self.drive(request)
 
-        self.assertIn("不支持 yield 普通 Request", str(ctx.exception))
+        self.assertIn("只支持 yield self.download_request", str(ctx.exception))
 
-    def test_non_request_products_are_forwarded(self):
-        self.spider.process_file = lambda request, response: None
+    def test_item_is_rejected_before_download(self):
         request = slot_request(self.spider, self.task)
-        item = Item()
-        download_response = DummyResponse()
+        downloads = []
         self.spider.parse_api = lambda req, resp: iter(
             [
-                item,
+                Item(),
                 self.spider.download_request(
                     req.task,
                     "https://cdn.example.com/f1.pdf",
-                    download_midware=lambda r: (r, download_response),
+                    download_midware=lambda r: downloads.append(r),
                 ),
             ]
         )
 
-        results = self.drive(request)
+        with self.assertRaises(TypeError) as ctx:
+            self.drive(request)
 
-        self.assertIn(item, results)
+        self.assertIn("只支持 yield self.download_request", str(ctx.exception))
+        self.assertEqual(downloads, [])
+
+    def test_callable_is_rejected_before_download(self):
+        request = slot_request(self.spider, self.task)
+        downloads = []
+        self.spider.parse_api = lambda req, resp: iter(
+            [
+                lambda: None,
+                self.spider.download_request(
+                    req.task,
+                    "https://cdn.example.com/f1.pdf",
+                    download_midware=lambda r: downloads.append(r),
+                ),
+            ]
+        )
+
+        with self.assertRaises(TypeError) as ctx:
+            self.drive(request)
+
+        self.assertIn("只支持 yield self.download_request", str(ctx.exception))
+        self.assertEqual(downloads, [])
 
     def test_inherits_null_dedup_key(self):
         """未启用去重时槽位的 dedup_key 为 None，继承时不能因属性缺失而报错"""
@@ -596,6 +623,37 @@ class TestDownloadResponseRelease(unittest.TestCase):
 
         self.assertEqual(downloader.put_back_calls, [browser])
 
+    def test_browser_return_failure_still_closes_response(self):
+        browser = object()
+        download_response = DummyResponse(status_code=502, browser=browser)
+        downloader = DummyRenderDownloader(put_back_error=RuntimeError("归还失败"))
+        self.yield_download(download_response)
+        request = slot_request(self.spider, self.task)
+
+        with_downloader = Request.render_downloader
+        Request.render_downloader = downloader
+        try:
+            with self.assertRaises(Exception) as ctx:
+                list(self.spider._on_slot_response(request, DummyResponse()))
+        finally:
+            Request.render_downloader = with_downloader
+
+        self.assertIn("HTTP 502", str(ctx.exception))
+        self.assertTrue(download_response.closed)
+
+    def test_close_failure_does_not_mask_validate_error(self):
+        download_response = DummyResponse(
+            status_code=502, close_error=RuntimeError("关闭失败")
+        )
+        self.yield_download(download_response)
+        request = slot_request(self.spider, self.task)
+
+        with self.assertRaises(Exception) as ctx:
+            list(self.spider._on_slot_response(request, DummyResponse()))
+
+        self.assertIn("HTTP 502", str(ctx.exception))
+        self.assertTrue(download_response.closed)
+
 
 class TestMidwareReplacingRequest(unittest.TestCase):
     """download_midware 返回新请求时不得替换原下载请求，否则丢失全部槽位上下文"""
@@ -628,55 +686,6 @@ class TestMidwareReplacingRequest(unittest.TestCase):
         self.assertEqual(downloaded.task_id, 60)
         self.assertEqual(downloaded.index, 0)
         self.assertEqual(downloaded.file_path, "files/60/f1.pdf")
-
-
-class TestSideProductsDeferred(unittest.TestCase):
-    """回调副产物必须等下载成功后才分发，否则重试会让同一批 Item 重复入库"""
-
-    def setUp(self):
-        self.spider = build_spider()
-        self.task = SimpleNamespace(id=70)
-        self.item = Item()
-
-    def yield_item_then_download(self, download_response):
-        self.spider.parse_api = lambda req, resp: iter(
-            [
-                self.item,
-                self.spider.download_request(
-                    req.task,
-                    "https://cdn.example.com/f1.pdf",
-                    download_midware=lambda r: (r, download_response),
-                ),
-            ]
-        )
-
-    def test_not_dispatched_when_download_fails(self):
-        self.spider.record_and_check_done = lambda *args: (0, 1, 0, 1, 0, 0)
-        self.spider.process_file = lambda request, response: (_ for _ in ()).throw(
-            Exception("写盘失败")
-        )
-        self.yield_item_then_download(DummyResponse())
-        request = slot_request(self.spider, self.task)
-
-        collected = []
-        with self.assertRaises(Exception):
-            for produced in self.spider._on_slot_response(request, DummyResponse()):
-                collected.append(produced)
-
-        self.assertEqual(collected, [])
-
-    def test_dispatched_before_task_done_products_on_success(self):
-        done_item = Item()
-        self.spider.record_and_check_done = lambda *args: (1, 1, 1, 0, 0, 0)
-        self.spider.on_task_all_done = lambda task, result, stats: [done_item]
-        self.spider.process_file = lambda request, response: None
-        self.yield_item_then_download(DummyResponse())
-        request = slot_request(self.spider, self.task)
-
-        results = list(self.spider._on_slot_response(request, DummyResponse()))
-
-        self.assertIs(results[0], self.item)
-        self.assertIn(done_item, results[1:])
 
 
 class TestPerRequestValidate(unittest.TestCase):

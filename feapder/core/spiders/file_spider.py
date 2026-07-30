@@ -219,7 +219,7 @@ class FileSpider(TaskSpider):
         @param url: 文件直链
         @param dedup_key: 显式去重键，优先级最高。
             URL 带时效签名（OSS/S3/COS 等）时，传入稳定标识可避免去重失效。
-            不传则走 dedup_key(request) 钩子，最后 fallback 到 request.url。
+            不传则走 dedup_key(request) 钩子，其默认实现返回 request.url。
             接口模式下去重键须声明在槽位请求上，此处不可再传。
         @param kwargs: 透传到 Request 的其他参数
             （headers/method/data/proxies/render/timeout/validate/download_midware 等）
@@ -750,17 +750,15 @@ return {0, total, success, fail, skipped, dup}
             raise Exception(f"{request.slot_callback} 返回值必须可迭代")
 
         download_requests = []
-        non_slot_items = []
         for produced_item in produced or []:
-            if isinstance(produced_item, Request):
-                if not getattr(produced_item, "is_file_download", False):
-                    raise Exception(
-                        f"任务{task_id} {request.slot_callback} 不支持 yield 普通 Request，"
-                        f"下载请求需用 self.download_request(task, url) 构造 url={produced_item.url}"
-                    )
-                download_requests.append(produced_item)
-            else:
-                non_slot_items.append(produced_item)
+            if not isinstance(produced_item, Request) or not getattr(
+                produced_item, "is_file_download", False
+            ):
+                raise TypeError(
+                    f"任务{task_id} {request.slot_callback} 只支持 yield "
+                    f"self.download_request(task, url)，实际类型={type(produced_item)}"
+                )
+            download_requests.append(produced_item)
 
         if len(download_requests) != 1:
             raise Exception(
@@ -780,11 +778,8 @@ return {0, total, success, fail, skipped, dup}
         for attr in ("task", "task_id", "index", "run_id", "file_path", "dedup_key"):
             setattr(download_request, attr, getattr(request, attr))
 
-        # 先完整跑完下载：下载失败会让槽位请求整体重试并再次执行用户回调，
-        # 提前分发副产物会让同一批 Item 重复入库
-        download_results = list(self._download_sync(download_request))
-        yield from non_slot_items
-        yield from download_results
+        # 回调只产出唯一下载请求，下载结果可直接交回 ParserControl
+        yield from self._download_sync(download_request)
 
     def _download_sync(self, request):
         """
@@ -812,10 +807,12 @@ return {0, total, success, fail, skipped, dup}
 
             yield from self.save_file(request, response)
         finally:
-            if getattr(response, "browser", None):
-                request.render_downloader.put_back(response.browser)
-            # 关闭异常在此屏蔽：否则会顶替掉正在传播的真实错误（如直链已过期），
-            # 破坏重试诊断。save_file 内部已提前关闭，此处是兜底，close 可重复调用
+            # 浏览器归还与连接关闭分别保护，任一清理异常都不能阻止另一项或覆盖真实错误
+            try:
+                if getattr(response, "browser", None):
+                    request.render_downloader.put_back(response.browser)
+            except Exception as e:
+                log.debug(f"归还下载浏览器异常 url={request.url} error={e}")
             try:
                 response.close()
             except Exception as e:
@@ -848,8 +845,6 @@ return {0, total, success, fail, skipped, dup}
         except Exception as e:
             log.error(f"任务{task_id} process_file异常 url={url} error={e}")
             raise
-        finally:
-            response.close()
 
         if ok is False:
             yield from self._record_file_failure(

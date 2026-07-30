@@ -284,7 +284,8 @@ class TestFileSpiderDedupFlow(unittest.TestCase):
             dedup.set_calls,
             [("https://bucket.s3.amazonaws.com/a.png", "/tmp/a.png")],
         )
-        self.assertTrue(response.closed)
+        # save_file 只处理文件与进度，响应由外层 ParserControl/_download_sync 统一关闭
+        self.assertFalse(response.closed)
 
 
 class TestFileSpiderValidate(unittest.TestCase):
