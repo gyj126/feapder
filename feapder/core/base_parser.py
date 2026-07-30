@@ -49,6 +49,8 @@ class BaseParser(object):
         若返回True 或 None，则进入解析函数
         若返回False，则丢弃当前请求，并调用 failed_request 回调（request.is_abandoned=True）
         可通过request.callback_name 区分不同的回调函数，编写不同的校验逻辑
+        响应性质差异较大时（如接口JSON与文件二进制流），更推荐在请求上传 Request(validate=你的方法)，
+        让各自的校验逻辑分离，本方法作为未指定时的兜底
         ---------
         @param request:
         @param response:

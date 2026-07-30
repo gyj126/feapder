@@ -31,12 +31,35 @@ class ${spider_name}(feapder.FileSpider):
     )
 
     def start_requests(self, task):
-        """yield 该任务的所有下载请求，必须使用 self.download_request 构造，详见 docs/usage/FileSpider.md"""
+        """
+        yield 该任务的所有文件请求，每个 Request 占一个文件槽位，详见 docs/usage/FileSpider.md
+
+        直链模式：任务表里就是直链，直接下载
+        接口模式：直链需先调接口签发且有效期很短时，改为 yield 接口请求，
+                 在 callback 中 yield 恰好一个 download_request，框架会紧邻执行下载
+            yield feapder.Request(
+                "https://api.example.com/download",
+                method="POST",
+                json={"file_id": file_id},
+                callback=self.parse_download_api,
+                dedup_key=file_id,  # 启用 file_dedup 时必填
+                file_id=file_id,
+            )
+        """
         for url in json.loads(task.file_urls):
             yield self.download_request(task, url)
 
+    # def parse_download_api(self, request, response):
+    #     """接口模式的槽位回调：解析出直链，产出唯一的下载请求"""
+    #     yield self.download_request(request.task, response.json["data"]["download_url"])
+
     def file_path(self, request):
-        """返回文件最终存储位置/标识；本地场景返回路径，云存储场景返回对象 key"""
+        """
+        返回文件最终存储位置/标识；本地场景返回路径，云存储场景返回对象 key
+
+        该钩子在派发期调用，接口模式下此时还没请求下载接口，
+        只能用任务表字段和挂在槽位请求上的自定义字段拼路径
+        """
         url = request.url
         parsed = urlparse(url)
         raw_name = os.path.basename(unquote(parsed.path)) or "unknown"
@@ -46,24 +69,40 @@ class ${spider_name}(feapder.FileSpider):
         return os.path.join(self._save_dir, str(request.task.id), filename)
 
     def process_file(self, request, response):
-        """落地下载内容到 request.file_path；返回 None/True 成功、False 显式失败、抛异常触发重试"""
+        """
+        落地下载内容到 request.file_path；返回 None/True 成功、False 显式失败、抛异常触发重试
+
+        self.file_chunks(response) 是字节流迭代器，下载/压缩/上传可全程流式，
+        响应由框架负责关闭，无需自己写 try/finally。上传云存储示例：
+            self.cos_client.put_object(
+                Bucket=self.bucket, Key=request.file_path, Body=self.file_chunks(response)
+            )
+        """
         file_path = request.file_path
         dirname = os.path.dirname(file_path)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         with open(file_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+            for chunk in self.file_chunks(response):
+                f.write(chunk)
         return None
 
     def validate(self, request, response):
-        """文件下载默认校验: 404 直接判失败不重试，其余 4xx/5xx 仍抛异常触发重试。用户可重写"""
-        if response and response.status_code == 404:
+        """
+        默认校验: 404 直接判失败不重试，其余 4xx/5xx 仍抛异常触发重试。用户可重写
+
+        接口模式下接口响应与文件响应性质不同，不必在此做分支判断，
+        在各自的请求上传 validate=你的方法即可让两套校验逻辑分离。
+        判空必须用 is not None：requests.Response.__bool__ 返回的是 self.ok。
+        """
+        if response is None:
+            return
+
+        if response.status_code == 404:
             log.warning(f"资源404，丢弃当前请求 url={request.url}")
             return False
 
-        if response and response.status_code >= 400:
+        if response.status_code >= 400:
             raise Exception(f"文件下载HTTP {response.status_code} url={request.url}")
 
     def on_file_downloaded(self, request):

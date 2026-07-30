@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-场景三：上传云存储 + 结果入库
+场景三：接口模式 + 上传 COS + 结果入库
 
-下载文件上传到云存储后，将有序的云存储 URL 列表组装成 Item 写入结果表。
+先请求下载接口换取加签直链，流式上传到 COS 后，
+将有序的 COS URL 列表组装成 Item 写入结果表。
 
 使用前先创建结果 Item:
     feapder create -i file_result
 
 然后编辑 items/file_result_item.py 添加 task_id、result_urls 字段。
+任务表结构见 table.sql
 """
 
 import json
-import os
-from urllib.parse import urlparse, unquote
 
 import feapder
 from feapder import ArgumentParser
@@ -39,7 +39,7 @@ class FileResultItem(Item):
         self.result_urls = None
 
 
-class OssResultSpider(feapder.FileSpider):
+class CosResultSpider(feapder.FileSpider):
     __custom_setting__ = dict(
         REDISDB_IP_PORTS="localhost:6379",
         REDISDB_USER_PASS="",
@@ -51,37 +51,53 @@ class OssResultSpider(feapder.FileSpider):
         MYSQL_USER_PASS="feapder123",
     )
 
+    COS_BASE_URL = "https://my-bucket-1250000000.cos.ap-guangzhou.myqcloud.com"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # self.oss_client = OSSClient(bucket="my-bucket")
+        self.bucket = "my-bucket-1250000000"
+        # from qcloud_cos import CosConfig, CosS3Client
+        # self.cos_client = CosS3Client(
+        #     CosConfig(Region="ap-guangzhou", SecretId="xxx", SecretKey="xxx")
+        # )
 
     def start_requests(self, task):
-        for url in json.loads(task.file_urls):
-            yield self.download_request(task, url)
+        for file_id in json.loads(task.file_ids):
+            yield feapder.Request(
+                "https://api.example.com/download",
+                method="POST",
+                json={"file_id": file_id},
+                callback=self.parse_download_api,
+                dedup_key=file_id,
+                file_id=file_id,
+            )
 
-    OSS_BASE_URL = "https://my-bucket.oss.aliyuncs.com"
+    def parse_download_api(self, request, response):
+        yield self.download_request(request.task, response.json["data"]["download_url"])
 
     def file_path(self, request):
-        """返回 OSS 存储 key（即 result 列表里要存的值）"""
-        filename = os.path.basename(unquote(urlparse(request.url).path))
-        return f"files/{request.task.id}/{request.index}_{filename}"
+        """返回 COS 存储 key（即 result 列表里要存的值）"""
+        return f"files/{request.task.id}/{request.file_id}.pdf"
 
     def process_file(self, request, response):
-        # self.oss_client.put_object(request.file_path, response.content)
+        """流式上传，整个文件不进内存"""
+        # self.cos_client.put_object(
+        #     Bucket=self.bucket, Key=request.file_path, Body=self.file_chunks(response)
+        # )
+        size = sum(len(chunk) for chunk in self.file_chunks(response))
+        log.info(f"任务{request.task_id} 上传成功 key={request.file_path} size={size}")
         return None
 
     def on_task_all_done(self, task, result, stats):
-        # result 与 start_requests 中 yield 的下载请求顺序严格位置对应
-        # 元素是 file_path() 返回的 OSS key，下载失败/跳过为 None
+        # result 与 start_requests 中 yield 的槽位顺序严格位置对应
+        # 元素是 file_path() 返回的 COS key，失败/跳过为 None
         log.info(
             f"任务{task.id} 完成 成功={stats.success} 失败={stats.fail} "
             f"跳过={stats.skipped} 去重={stats.dup}"
         )
 
-        # 把 OSS key 拼成可访问 URL 后写入结果表
-        result_urls = [
-            f"{self.OSS_BASE_URL}/{key}" if key else None for key in result
-        ]
+        # 把 COS key 拼成可访问 URL 后写入结果表
+        result_urls = [f"{self.COS_BASE_URL}/{key}" if key else None for key in result]
         item = FileResultItem()
         item.task_id = task.id
         item.result_urls = result_urls
@@ -94,13 +110,14 @@ class OssResultSpider(feapder.FileSpider):
 
 
 if __name__ == "__main__":
-    spider = OssResultSpider(
-        redis_key="oss_result_spider",
+    spider = CosResultSpider(
+        redis_key="cos_result_spider",
         task_table="file_task",
-        task_keys=["id", "file_urls"],
+        task_keys=["id", "file_ids"],
+        file_dedup="redis",
     )
 
-    parser = ArgumentParser(description="OssResultSpider 文件下载爬虫")
+    parser = ArgumentParser(description="CosResultSpider 文件下载爬虫")
     parser.add_argument(
         "--start_master",
         action="store_true",

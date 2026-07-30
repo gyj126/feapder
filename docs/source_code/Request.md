@@ -29,6 +29,7 @@ Request除了支持requests的所有参数外，更需要关心的是框架中�
 @param priority: 请求优先级 越小越优先 默认300
 @param parser_name: 回调函数所在的类名 默认为当前类
 @param callback: 回调函数 可以是函数 也可是函数名（如想跨类回调时，parser_name指定那个类名，callback指定那个类想回调的方法名即可）
+@param validate: 该请求专属的响应校验函数 可以是函数 也可是函数名。不传时使用parser中的validate
 @param filter_repeat: 是否需要去重 (True/False) 当setting中的REQUEST_FILTER_ENABLE设置为True时该参数生效 默认True
 @param auto_request: 是否需要自动请求下载网页 默认是。设置为False时返回的response为空，需要自己去请求网页
 @param request_sync: 是否同步请求下载网页，默认异步。如果该请求url过期时间快，可设置为True，相当于yield的reqeust会立即响应，而不是去排队
@@ -67,8 +68,29 @@ Request除了支持requests的所有参数外，更需要关心的是框架中�
     def parse(self, request, response):
         # response 为None， 需要自己去下载
         pass
-        
-        
+
+
+### 请求级 validate
+
+同一爬虫内不同请求的响应性质可能完全不同（如接口 JSON 响应与文件二进制流各有各的校验规则）。此时不必在 parser 的 `validate` 里按 `request.callback_name` 做分支判断，直接在请求上指定校验函数即可：
+
+```python
+def start_requests(self):
+    yield feapder.Request("https://api.example.com/list", callback=self.parse_api, validate=self.validate_api)
+    yield feapder.Request("https://example.com/a.pdf", callback=self.parse_file, validate=self.validate_file)
+
+def validate_api(self, request, response):
+    if response.json.get("code") != 0:
+        return False
+
+def validate_file(self, request, response):
+    if not response.content.startswith(b"%PDF"):
+        raise Exception("不是有效的 PDF")
+```
+
+校验函数的返回值语义与 parser 的 `validate` 完全一致：返回 `True`/`None` 进入解析函数，返回 `False` 丢弃请求并走 `failed_request` 回调，抛异常触发重试。不传 `validate` 时回落到 parser 的 `validate` 方法。
+
+
 ## 方法详解
 
 ### 1. 发起请求，获取响应
