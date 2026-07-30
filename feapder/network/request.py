@@ -68,6 +68,7 @@ class Request:
         priority=300,
         parser_name=None,
         callback=None,
+        validate=None,
         filter_repeat=True,
         auto_request=True,
         request_sync=False,
@@ -93,6 +94,7 @@ class Request:
         priority=300,
         parser_name=None,
         callback=None,
+        validate=None,
         filter_repeat=True,
         auto_request=True,
         request_sync=False,
@@ -114,6 +116,9 @@ class Request:
         @param priority: 优先级 越小越优先 默认300
         @param parser_name: 回调函数所在的类名 默认为当前类
         @param callback: 回调函数 可以是函数 也可是函数名（如想跨类回调时，parser_name指定那个类名，callback指定那个类想回调的方法名即可）
+        @param validate: 该请求专属的响应校验函数 可以是函数 也可是函数名。不传时使用parser中的validate。
+            适用于同一爬虫内不同请求的响应性质不同的场景（如接口JSON响应与文件二进制响应各有各的校验规则），
+            避免把多套校验逻辑挤在一个validate里做分支判断
         @param filter_repeat: 是否需要去重 (True/False) 当setting中的REQUEST_FILTER_ENABLE设置为True时该参数生效 默认True
         @param auto_request: 是否需要自动请求下载网页 默认是。设置为False时返回的response为空，需要自己去请求网页
         @param request_sync: 是否同步请求下载网页，默认异步。如果该请求url过期时间快，可设置为True，相当于yield的reqeust会立即响应，而不是去排队
@@ -152,6 +157,7 @@ class Request:
         self.priority = priority
         self.parser_name = parser_name
         self.callback = callback
+        self.validate = validate
         self.filter_repeat = filter_repeat
         self.auto_request = auto_request
         self.request_sync = request_sync
@@ -251,6 +257,13 @@ class Request:
             else self.callback
         )
 
+        # validate 与 callback 同样只存方法名，bound method 无法 pickle
+        self.validate = (
+            getattr(self.validate, "__name__")
+            if callable(self.validate)
+            else self.validate
+        )
+
         if isinstance(self.download_midware, (tuple, list)):
             self.download_midware = [
                 getattr(download_midware, "__name__")
@@ -295,6 +308,14 @@ class Request:
             getattr(self.callback, "__name__")
             if callable(self.callback)
             else self.callback
+        )
+
+    @property
+    def validate_name(self):
+        return (
+            getattr(self.validate, "__name__")
+            if callable(self.validate)
+            else self.validate
         )
 
     def make_requests_kwargs(self):

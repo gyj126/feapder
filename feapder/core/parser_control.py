@@ -25,6 +25,86 @@ from feapder.utils import metrics
 from feapder.utils.log import log
 
 
+def fetch(request, parser):
+    """
+    执行下载中间件并获取响应
+
+    download_midware 有四种形态：callable、方法名字符串、两者的列表/元组、False（禁用）。
+    中间件可返回 request，也可返回 (request, response) 二元组表示自己已完成下载。
+
+    @param request: 待下载请求
+    @param parser: 请求所属 parser，用于解析方法名形式的中间件及提供默认中间件
+    @return: (request_used, response) - request_used 为中间件替换后的请求，
+        中间件未介入时为 None，调用方据此判断响应是否由原始请求产生
+    """
+    request_temp = None
+    response = None
+
+    if request.download_midware:
+        if isinstance(request.download_midware, (list, tuple)):
+            request_temp = request
+            for download_midware in request.download_midware:
+                download_midware = (
+                    download_midware
+                    if callable(download_midware)
+                    else tools.get_method(parser, download_midware)
+                )
+                request_temp = download_midware(request_temp)
+        else:
+            download_midware = (
+                request.download_midware
+                if callable(request.download_midware)
+                else tools.get_method(parser, request.download_midware)
+            )
+            request_temp = download_midware(request)
+    elif request.download_midware != False:
+        request_temp = parser.download_midware(request)
+
+    if request_temp:
+        if isinstance(request_temp, (tuple, list)) and len(request_temp) == 2:
+            request_temp, response = request_temp
+
+        if not isinstance(request_temp, Request):
+            raise Exception(
+                "download_midware need return a request, but received type: {}".format(
+                    type(request_temp)
+                )
+            )
+        if response is None:
+            response = (
+                request_temp.get_response()
+                if not setting.RESPONSE_CACHED_USED
+                else request_temp.get_response_from_cached(save_cached=False)
+            )
+    else:
+        response = (
+            request.get_response()
+            if not setting.RESPONSE_CACHED_USED
+            else request.get_response_from_cached(save_cached=False)
+        )
+
+    return request_temp, response
+
+
+def validate_response(request, parser, response):
+    """
+    校验响应，request.validate 优先于 parser.validate
+
+    同一爬虫内不同请求的响应性质可能完全不同（如接口 JSON 与文件二进制流），
+    per-request 的校验函数让各自的校验逻辑分离，无需在一个 validate 里做分支判断。
+
+    @return: validate 的返回值，False 表示丢弃该请求
+    """
+    if request.validate:
+        validator = (
+            request.validate
+            if callable(request.validate)
+            else tools.get_method(parser, request.validate)
+        )
+        return validator(request, response)
+    return parser.validate(request, response)
+
+
 class ParserControl(threading.Thread):
     DOWNLOAD_EXCEPTION = "download_exception"
     DOWNLOAD_SUCCESS = "download_success"
@@ -107,61 +187,8 @@ class ParserControl(threading.Thread):
 
                     # 解析request
                     if request.auto_request:
-                        request_temp = None
-                        response = None
-
-                        # 下载中间件
-                        if request.download_midware:
-                            if isinstance(request.download_midware, (list, tuple)):
-                                request_temp = request
-                                for download_midware in request.download_midware:
-                                    download_midware = (
-                                        download_midware
-                                        if callable(download_midware)
-                                        else tools.get_method(parser, download_midware)
-                                    )
-                                    request_temp = download_midware(request_temp)
-                            else:
-                                download_midware = (
-                                    request.download_midware
-                                    if callable(request.download_midware)
-                                    else tools.get_method(
-                                        parser, request.download_midware
-                                    )
-                                )
-                                request_temp = download_midware(request)
-                        elif request.download_midware != False:
-                            request_temp = parser.download_midware(request)
-
-                        # 请求
-                        if request_temp:
-                            if (
-                                isinstance(request_temp, (tuple, list))
-                                and len(request_temp) == 2
-                            ):
-                                request_temp, response = request_temp
-
-                            if not isinstance(request_temp, Request):
-                                raise Exception(
-                                    "download_midware need return a request, but received type: {}".format(
-                                        type(request_temp)
-                                    )
-                                )
-                            used_download_midware_enable = True
-                            if response is None:
-                                response = (
-                                    request_temp.get_response()
-                                    if not setting.RESPONSE_CACHED_USED
-                                    else request_temp.get_response_from_cached(
-                                        save_cached=False
-                                    )
-                                )
-                        else:
-                            response = (
-                                request.get_response()
-                                if not setting.RESPONSE_CACHED_USED
-                                else request.get_response_from_cached(save_cached=False)
-                            )
+                        request_temp, response = fetch(request, parser)
+                        used_download_midware_enable = request_temp is not None
 
                         if response == None:
                             raise Exception(
@@ -172,7 +199,7 @@ class ParserControl(threading.Thread):
                         self.record_response_metrics(response, parser.name)
 
                         # 校验
-                        if parser.validate(request, response) == False:
+                        if validate_response(request, parser, response) == False:
                             request.is_abandoned = True
                             request.error_msg = "validate返回False, 请求被丢弃"
                             request.response = str(response)
@@ -615,60 +642,15 @@ class AirSpiderParserControl(ParserControl):
 
                     # 解析request
                     if request.auto_request:
-                        request_temp = None
-                        response = None
-
-                        # 下载中间件
-                        if request.download_midware:
-                            if isinstance(request.download_midware, (list, tuple)):
-                                request_temp = request
-                                for download_midware in request.download_midware:
-                                    download_midware = (
-                                        download_midware
-                                        if callable(download_midware)
-                                        else tools.get_method(parser, download_midware)
-                                    )
-                                    request_temp = download_midware(request_temp)
-                            else:
-                                download_midware = (
-                                    request.download_midware
-                                    if callable(request.download_midware)
-                                    else tools.get_method(
-                                        parser, request.download_midware
-                                    )
-                                )
-                                request_temp = download_midware(request)
-                        elif request.download_midware != False:
-                            request_temp = parser.download_midware(request)
-
-                        # 请求
+                        request_temp, response = fetch(request, parser)
                         if request_temp:
-                            if (
-                                isinstance(request_temp, (tuple, list))
-                                and len(request_temp) == 2
-                            ):
-                                request_temp, response = request_temp
-
-                            if not isinstance(request_temp, Request):
-                                raise Exception(
-                                    "download_midware need return a request, but received type: {}".format(
-                                        type(request_temp)
-                                    )
-                                )
                             request = request_temp
-
-                        if response is None:
-                            response = (
-                                request.get_response()
-                                if not setting.RESPONSE_CACHED_USED
-                                else request.get_response_from_cached(save_cached=False)
-                            )
 
                         # 记录响应状态码与耗时，早于 validate，避免被 validate 拒绝的响应丢失
                         self.record_response_metrics(response, parser.name)
 
                         # 校验
-                        if parser.validate(request, response) == False:
+                        if validate_response(request, parser, response) == False:
                             request.is_abandoned = True
                             request.error_msg = "validate返回False, 请求被丢弃"
                             request.response = str(response)
