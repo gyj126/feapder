@@ -4,7 +4,8 @@ FileSpider 接口模式集成测试
 
 用真实的 ParserControl 驱动槽位请求，验证两步链路的重试语义：
 下载阶段失败时整个槽位请求重试，也就是重新调下载接口换一条新直链，
-而不是就地重试已经过期的旧直链。
+而不是就地重试已经过期的旧直链；同时验证接口回调的副产物只在最终
+下载成功那一次分发，不会随重试次数重复入库。
 
 不依赖 Redis/MySQL/网络：接口响应与文件响应都由 download_midware 直接给出。
 """
@@ -15,6 +16,7 @@ import feapder
 import feapder.setting as setting
 from feapder.core.parser_control import ParserControl
 from feapder.core.spiders.file_spider import FileSpider
+from feapder.network.item import Item
 from feapder.network.response import Response
 
 
@@ -40,6 +42,8 @@ class RetrySpySpider(FileSpider):
 
     def parse_api(self, request, response):
         self.api_calls.append(request.file_id)
+        # 副产物：每次调接口都会重新产出，只应在下载成功那次真正入库
+        yield Item(file_id=request.file_id, attempt=len(self.api_calls))
         # 每次调接口都签发一条新直链
         url = f"https://cdn.example.com/{request.file_id}.pdf?sig={len(self.api_calls)}"
         yield self.download_request(request.task, url, download_midware=self.fake_download)
@@ -73,6 +77,7 @@ class RetrySpySpider(FileSpider):
 class DummyBuffer:
     def __init__(self):
         self.requests = []
+        self.items = []
 
     def put_request(self, request):
         self.requests.append(request)
@@ -84,7 +89,7 @@ class DummyBuffer:
         pass
 
     def put_item(self, item):
-        pass
+        self.items.append(item)
 
     def get_items_count(self):
         return 0
@@ -120,7 +125,8 @@ def test_download_failure_retries_from_api():
     spider = RetrySpySpider()
     task = SimpleNamespace(id=1)
     request_buffer = DummyBuffer()
-    controller = ParserControl(None, "resolve_integration", request_buffer, DummyBuffer())
+    item_buffer = DummyBuffer()
+    controller = ParserControl(None, "resolve_integration", request_buffer, item_buffer)
     controller.add_parser(spider)
 
     request = build_slot_request(spider, task)
@@ -134,3 +140,8 @@ def test_download_failure_retries_from_api():
     assert len(spider.api_calls) == 3, "每次重试都应重新调下载接口"
     assert len(set(spider.downloads)) == 3, "每次重试都应使用新签发的直链"
     assert spider.processed == ["https://cdn.example.com/f1.pdf?sig=3"], "最终应落地最新直链的内容"
+
+    # 接口回调执行了 3 次，但副产物只在下载成功那次分发，避免重复入库
+    # buffer 里还有任务收尾的 Redis 清理回调，这里只看 Item
+    attempts = [item["attempt"] for item in item_buffer.items if isinstance(item, Item)]
+    assert attempts == [3], "副产物只应入库最后成功那一次"

@@ -3,7 +3,7 @@
 FileSpider dedup_key 接线与 _resolve_dedup_key 单元测试
 
 不依赖 Redis/MySQL，覆盖：
-- FileSpider._resolve_dedup_key 的优先级解析（显式参数 > 钩子 > 默认 URL）
+- FileSpider._resolve_dedup_key 的优先级解析（显式参数 > 钩子）与失败时的响亮抛出
 - FileSpider 在任务派发/成功回写阶段对 dedup_key 的实际接线
 
 normalize_url 的纯函数测试见 test_normalize_url.py
@@ -175,15 +175,28 @@ class TestResolveDedupKey(unittest.TestCase):
         key = spider._resolve_dedup_key(req)
         self.assertEqual(key, "from-explicit")
 
-    def test_hook_exception_falls_back_to_url(self):
+    def test_hook_exception_propagates(self):
+        """钩子异常不得回落 request.url：否则剥离签名的规则静默失效，去重退化"""
+
         class BadSpider(FileSpider):
             def dedup_key(self, request):
                 raise RuntimeError("boom")
 
         spider = BadSpider.__new__(BadSpider)
         req = make_request("https://example.com/a.jpg")
-        key = spider._resolve_dedup_key(req)
-        self.assertEqual(key, "https://example.com/a.jpg")
+        with self.assertRaises(RuntimeError):
+            spider._resolve_dedup_key(req)
+        self.assertFalse(hasattr(req, "dedup_key"))
+
+    def test_hook_empty_return_raises(self):
+        class EmptySpider(FileSpider):
+            def dedup_key(self, request):
+                return ""
+
+        spider = EmptySpider.__new__(EmptySpider)
+        req = make_request("https://example.com/a.jpg")
+        with self.assertRaises(ValueError):
+            spider._resolve_dedup_key(req)
 
     def test_cached_dedup_key_not_recomputed(self):
         """已存在 request.dedup_key 时应直接返回，不再调用钩子"""

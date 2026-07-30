@@ -322,6 +322,8 @@ def file_path(self, request):
 
 - **启用 `file_dedup` 时必须提供去重键**：接口地址在各文件间往往完全相同，不能作为文件身份。未通过 `dedup_key=` 参数或 `dedup_key()` 钩子提供去重键时，框架会直接抛 `ValueError`。未启用 `file_dedup` 时该槽位不参与任何去重（既不参与任务内去重，也不查缓存）。
 - **去重键声明在槽位请求上**：派发期就要用它查缓存，因此不能在回调里的 `download_request` 上再传 `dedup_key`，否则写入键与查询键不一致导致缓存永不命中，框架会直接抛 `ValueError`。
+- **回调产出的 `Item` 在文件下载成功后才分发**：下载失败会让整个槽位请求重试并**再次执行回调**，因此框架把回调产出的 `Item`／回调函数缓冲起来，等下载成功后才一并分发。下载失败时一个都不分发，重试不会造成同一批 `Item` 重复入库。
+- **`download_midware` 返回的新请求不会被采纳**：与直链模式一致，中间件即使返回一个全新的 `Request`，后续链路仍使用原下载请求，避免替换后丢失框架注入的 `task_id`/`index`/`file_path`/`dedup_key` 与请求级 `validate`。需要修改请求时请**原地修改并返回原对象**（或返回 `(request, response)` 元组自行接管下载）。
 
 ### 按请求指定校验函数
 
@@ -721,6 +723,8 @@ class CustomRequestSpider(feapder.FileSpider):
             )
 
     def sign_url(self, request):
+        # 必须原地修改并返回原对象：框架不会采纳中间件返回的新 Request，
+        # 否则会丢失框架注入的 task_id / index / file_path / dedup_key
         request.headers["X-Signature"] = make_signature(request.url)
         return request
 
@@ -819,7 +823,9 @@ https://oss.example.com/img/abc.jpg?Expires=1761000000&Signature=xxx&OSSAccessKe
 - 任务内去重失效（同一逻辑文件被多次下载）
 - 跨任务缓存命中率近 0，缓存条目随时间膨胀
 
-FileSpider 提供两种方式自定义去重键，**优先级**：`download_request(..., dedup_key=...)` > `dedup_key(request)` 钩子 > `request.url`（默认）。
+FileSpider 提供两种方式自定义去重键，**优先级**：`download_request(..., dedup_key=...)` > `dedup_key(request)` 钩子（默认实现返回 `request.url`）。
+
+钩子抛异常或返回空值时框架**直接抛出**，不会回落到 `request.url`。回落会让上面剥离签名的规则静默失效、退化成按加签 URL 去重，表现为缓存永不命中且条目无限膨胀，属于难以察觉的慢性故障。去重键错误会影响文件之间的折叠关系，因此失败范围是终止整个任务的派发（与只影响单个文件的 `file_path` 钩子异常不同，后者只跳过该文件并计入 `stats.skipped`）。
 
 #### 方式一：重写 `dedup_key` 钩子（推荐，规则统一）
 
@@ -873,6 +879,8 @@ def start_requests(self, task):
 | 是 | 是 | 参与任务内去重 + 跨任务缓存 |
 
 “提供了去重键”指传了 `dedup_key=` 参数或重写了 `dedup_key(request)` 钩子。
+
+重写了钩子但钩子抛异常或返回空值时，框架同样直接抛出、不回落接口地址——否则整个任务的文件会被折叠成一个。
 
 去重键必须声明在 `start_requests` 的**槽位请求**上，因为派发期就要用它查缓存（缓存命中时连下载接口都不会调用）。在回调里的 `download_request` 上再传 `dedup_key` 会导致写入键与查询键不一致、缓存永不命中，框架会直接抛 `ValueError`：
 

@@ -253,10 +253,13 @@ class FileSpider(TaskSpider):
         query 参数即可恢复去重命中率，可配合 feapder.utils.tools.normalize_url 使用。
 
         优先级（由 _resolve_dedup_key 决定）：
-            request.dedup_key（显式参数） > self.dedup_key(request)（本钩子） > request.url
+            request.dedup_key（显式参数） > self.dedup_key(request)（本钩子）
 
-        注意默认值只对直链模式有意义。接口模式下 request.url 是接口地址、各文件往往完全
-        相同，框架不会用它兜底：未提供去重键时该槽位不参与任何去重，启用 file_dedup
+        本钩子抛异常或返回空值时框架直接抛出，不会回落 request.url：回落会让上述剥离
+        签名的规则静默失效，退化成按加签 URL 去重，缓存永不命中且条目无限膨胀。
+
+        注意默认返回值只对直链模式有意义。接口模式下 request.url 是接口地址、各文件往往
+        完全相同，框架不会用它兜底：未提供去重键时该槽位不参与任何去重，启用 file_dedup
         时则直接抛异常。
 
         @param request: 当前槽位请求；可访问 request.url / request.task / request.index 等
@@ -411,20 +414,24 @@ class FileSpider(TaskSpider):
     def _resolve_dedup_key(self, request):
         """
         解析下载请求的去重键并回写到 request.dedup_key，避免重复计算。
-        优先级：request.dedup_key（显式参数） > self.dedup_key(request)（钩子） > request.url。
+        优先级：request.dedup_key（显式参数） > self.dedup_key(request)（钩子，默认返回 request.url）
+
+        钩子异常直接向上抛、返回空值抛 ValueError，均不回落 request.url：
+        - 直链模式下回落会让钩子里的 normalize_url 之类规则静默失效，退化成按加签 URL
+          去重，表现为缓存永不命中且条目无限膨胀，属难以察觉的慢性故障
+        - 接口模式下 url 是接口地址、各文件往往相同，回落会把不同文件误折叠为同一个
+
+        去重键错误会影响文件之间的折叠关系，因此失败范围是终止整个任务的派发，
+        与只影响单个文件的 file_path 钩子异常（跳过该文件）有意不同。
 
         @return: str - 去重键
         """
         existing = getattr(request, "dedup_key", None)
         if existing:
             return existing
-        try:
-            key = self.dedup_key(request)
-        except Exception as e:
-            log.error(f"dedup_key钩子异常 url={request.url} error={e}")
-            key = None
+        key = self.dedup_key(request)
         if not key:
-            key = request.url
+            raise ValueError(f"dedup_key钩子未返回有效去重键 url={request.url}")
         request.dedup_key = key
         return key
 
@@ -773,8 +780,11 @@ return {0, total, success, fail, skipped, dup}
         for attr in ("task", "task_id", "index", "run_id", "file_path", "dedup_key"):
             setattr(download_request, attr, getattr(request, attr))
 
+        # 先完整跑完下载：下载失败会让槽位请求整体重试并再次执行用户回调，
+        # 提前分发副产物会让同一批 Item 重复入库
+        download_results = list(self._download_sync(download_request))
         yield from non_slot_items
-        yield from self._download_sync(download_request)
+        yield from download_results
 
     def _download_sync(self, request):
         """
@@ -782,22 +792,34 @@ return {0, total, success, fail, skipped, dup}
 
         复用 ParserControl 的 fetch / validate_response，使 download_midware 与
         per-request validate 在接口模式下与直链模式行为一致。
+
+        下载响应是本方法的局部变量，外层 ParserControl 的 finally 只看得到接口响应，
+        必须在此自行释放，否则 validate 抛异常时会持续泄漏连接池与浏览器实例。
         """
-        request_temp, response = fetch(request, self)
-        if request_temp:
-            request = request_temp
+        # 与 ParserControl 一致：中间件即使返回新请求，后续链路仍用原下载请求，
+        # 避免替换后丢失 task_id/index/run_id/file_path/dedup_key 与请求级 validate
+        _, response = fetch(request, self)
 
         if response is None:
             raise Exception(f"连接超时 url={request.url}")
 
-        if validate_response(request, self, response) == False:
-            response.close()
-            log.warning(f"任务{request.task_id} 文件校验未通过，丢弃当前请求 url={request.url}")
-            error = Exception(f"validate返回False, 丢弃文件下载 url={request.url}")
-            yield from self._record_file_failure(request, error, "文件校验失败")
-            return
+        try:
+            if validate_response(request, self, response) == False:
+                log.warning(f"任务{request.task_id} 文件校验未通过，丢弃当前请求 url={request.url}")
+                error = Exception(f"validate返回False, 丢弃文件下载 url={request.url}")
+                yield from self._record_file_failure(request, error, "文件校验失败")
+                return
 
-        yield from self.save_file(request, response)
+            yield from self.save_file(request, response)
+        finally:
+            if getattr(response, "browser", None):
+                request.render_downloader.put_back(response.browser)
+            # 关闭异常在此屏蔽：否则会顶替掉正在传播的真实错误（如直链已过期），
+            # 破坏重试诊断。save_file 内部已提前关闭，此处是兜底，close 可重复调用
+            try:
+                response.close()
+            except Exception as e:
+                log.debug(f"关闭下载响应异常 url={request.url} error={e}")
 
     def save_file(self, request, response):
         """
