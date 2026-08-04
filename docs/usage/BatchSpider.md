@@ -96,6 +96,15 @@ BatchSpider参数：
 
         spider.start()
 
+本地单进程运行时，也可以使用同一个实例同时启动worker和master：
+
+```python
+spider.start()
+spider.start_monitor_task()
+```
+
+`start()`会启动worker线程，`start_monitor_task()`在主线程中下发并监控任务。分布式部署时仍建议将master和worker分开运行。
+
 
 更详细的说明可查看 [BatchSpider进阶](source_code/BatchSpider进阶.md)
 
