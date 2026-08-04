@@ -289,32 +289,22 @@ class BatchSpider(BatchParser, Scheduler):
             time.sleep(self._check_task_interval)
 
     def create_batch_record_table(self):
-        sql = (
-            "select table_name from information_schema.tables where table_name like '%s'"
-            % self._batch_record_table
-        )
-        tables_name = self._mysqldb.find(sql)
-        if not tables_name:
-            sql = """
-                CREATE TABLE `{table_name}` (
-                      `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-                      `batch_date` {batch_date} DEFAULT NULL COMMENT '批次时间',
-                      `total_count` int(11) DEFAULT NULL COMMENT '任务总数',
-                      `done_count` int(11) DEFAULT NULL COMMENT '完成数 (1,-1)',
-                      `fail_count` int(11) DEFAULT NULL COMMENT '失败任务数 (-1)',
-                      `interval` float(11) DEFAULT NULL COMMENT '批次间隔',
-                      `interval_unit` varchar(20) DEFAULT NULL COMMENT '批次间隔单位 day, hour',
-                      `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '批次开始时间',
-                      `update_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '本条记录更新时间',
-                      `is_done` int(11) DEFAULT '0' COMMENT '批次是否完成 0 未完成  1 完成',
-                      PRIMARY KEY (`id`)
-                    ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
-            """.format(
-                table_name=self._batch_record_table,
-                batch_date="datetime",
-            )
-
-            self._mysqldb.execute(sql)
+        sql = """
+            CREATE TABLE IF NOT EXISTS `{table_name}` (
+                  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                  `batch_date` {batch_date} DEFAULT NULL COMMENT '批次时间',
+                  `total_count` int(11) DEFAULT NULL COMMENT '任务总数',
+                  `done_count` int(11) DEFAULT NULL COMMENT '完成数 (1,-1)',
+                  `fail_count` int(11) DEFAULT NULL COMMENT '失败任务数 (-1)',
+                  `interval` float(11) DEFAULT NULL COMMENT '批次间隔',
+                  `interval_unit` varchar(20) DEFAULT NULL COMMENT '批次间隔单位 day, hour',
+                  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '批次开始时间',
+                  `update_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '本条记录更新时间',
+                  `is_done` int(11) DEFAULT '0' COMMENT '批次是否完成 0 未完成  1 完成',
+                  PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+        """.format(table_name=self._batch_record_table, batch_date="datetime")
+        self._mysqldb.execute(sql)
 
     def distribute_task(self, tasks):
         """
