@@ -1114,10 +1114,16 @@ class DebugFileSpider(FileSpider):
                 condition=f"id = {task_id}",
             )
 
-            if self._mysqldb.update(sql):
-                log.debug(f"置任务{task_id}状态成功")
+            affect_count = self._mysqldb.update(sql)
+            if affect_count is None:
+                log.error(f"置任务{task_id}状态失败，数据库执行异常 sql={sql}")
+            elif affect_count == 0:
+                log.warning(
+                    f"置任务{task_id}状态未发生变化，任务可能不存在或目标状态已经是{state} "
+                    f"sql={sql}"
+                )
             else:
-                log.error(f"置任务{task_id}状态失败 sql={sql}")
+                log.debug(f"置任务{task_id}状态成功")
 
     def update_task_batch(self, task_id, state=1, *args, **kwargs):
         if self._update_task:
