@@ -168,10 +168,16 @@ class TaskParser(BaseParser):
             self._task_table, kwargs, condition="id = {task_id}".format(task_id=task_id)
         )
 
-        if self._mysqldb.update(sql):
-            log.debug("置任务%s状态成功" % task_id)
+        affect_count = self._mysqldb.update(sql)
+        if affect_count is None:
+            log.error("置任务%s状态失败，数据库执行异常 sql=%s" % (task_id, sql))
+        elif affect_count == 0:
+            log.warning(
+                "置任务%s状态未发生变化，任务可能不存在或目标状态已经是%s sql=%s"
+                % (task_id, state, sql)
+            )
         else:
-            log.error("置任务%s状态失败  sql=%s" % (task_id, sql))
+            log.debug("置任务%s状态成功" % task_id)
 
     update_task = update_task_state
 

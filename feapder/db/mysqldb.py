@@ -322,7 +322,7 @@ class MysqlDB:
         sql, datas = make_batch_sql(table, datas, **kwargs)
         return self.add_batch(sql, datas)
 
-    def update(self, sql) -> int:
+    def update(self, sql) -> int | None:
         affect_count = None
         conn, cursor = None, None
 
@@ -331,7 +331,7 @@ class MysqlDB:
             affect_count = cursor.execute(sql)
             conn.commit()
         except Exception as e:
-            log.error(
+            log.exception(
                 """
                 error:%s
                 sql:  %s

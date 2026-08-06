@@ -106,8 +106,14 @@ def add_batch_smart(self, table, datas: List[Dict], **kwargs):
 ### 更新
 
 ```python
-def update(self, sql):
-    pass
+def update(self, sql) -> int | None:
+    """
+    Args:
+        sql:
+
+    Returns: 影响行数；执行异常时返回 None
+
+    """
 ```
 
 ```python
