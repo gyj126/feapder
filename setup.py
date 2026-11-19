@@ -49,6 +49,8 @@ requires = [
     "psutil>=5.9.0",
     "pyperclip>=1.8.2",
     "terminal-layout>=2.1.3",
+    "six>=1.16.0",
+    "packaging>=21.0",
 ]
 
 render_requires = [
