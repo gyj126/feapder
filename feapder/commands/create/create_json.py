@@ -45,7 +45,7 @@ class CreateJson:
             if not content or content.startswith(":"):
                 continue
 
-            regex = "([^:\s]*)[:|\s]*(.*)"
+            regex = r"([^:\s]*)[:|\s]*(.*)"
 
             result = tools.get_info(content, regex, fetch_one=True)
             if result[0] in json:
